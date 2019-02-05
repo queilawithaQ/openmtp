@@ -2,14 +2,13 @@
 
 import { dialog, BrowserWindow, ipcMain } from 'electron';
 import { autoUpdater } from 'electron-updater';
+import { getMainWindow } from 'electron-main-window';
 import { isConnected } from '../utils/isOnline';
 import { log } from '../utils/log';
 import { isPackaged } from '../utils/isPackaged';
 import { PATHS } from '../utils/paths';
 import { ENABLE_BACKGROUND_AUTO_UPDATE } from '../constants';
 import { unixTimestampNow } from '../utils/date';
-import { undefinedOrNull } from '../utils/funcs';
-import { getMainWindowMainProcess } from '../utils/windowHelper';
 import { appUpdateAvailableWindow } from '../utils/createWindows';
 
 let progressbarWindow = null;
@@ -404,12 +403,7 @@ export default class AppUpdate {
   }
 
   setMainWindow() {
-    const _mainWindow = getMainWindowMainProcess();
-    if (undefinedOrNull(_mainWindow)) {
-      return null;
-    }
-
-    mainWindow = _mainWindow;
+    mainWindow = getMainWindow();
   }
 
   setTaskBarProgressBar(value) {

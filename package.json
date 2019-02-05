@@ -1,7 +1,7 @@
 {
   "name": "openmtp",
   "productName": "OpenMTP",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "OpenMTP | Android File Transfer for macOS",
   "scripts": {
     "build": "yarn lint && concurrently \"yarn build-main\" \"yarn build-renderer\"",
@@ -231,6 +231,7 @@
     "electron-debug": "^2.0.0",
     "electron-ga": "^1.0.6",
     "electron-is": "^3.0.0",
+    "electron-main-window": "^1.0.1",
     "electron-root-path": "^1.0.1",
     "electron-updater": "^4.0.6",
     "fs-extra": "^7.0.1",

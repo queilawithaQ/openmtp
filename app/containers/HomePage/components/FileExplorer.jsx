@@ -7,6 +7,7 @@ import { remote, ipcRenderer, shell } from 'electron';
 import lodashSortBy from 'lodash/sortBy';
 import { connect } from 'react-redux';
 import { bindActionCreators } from 'redux';
+import { getMainWindow } from 'electron-main-window';
 import { log } from '@Log';
 import {
   TextFieldEdit as TextFieldEditDialog,
@@ -60,13 +61,12 @@ import {
   isNumber,
   undefinedOrNull
 } from '../../../utils/funcs';
-import { getMainWindowRendererProcess } from '../../../utils/windowHelper';
 import { throwAlert } from '../../Alerts/actions';
 import { imgsrc } from '../../../utils/imgsrc';
 import FileExplorerBodyRender from './FileExplorerBodyRender';
 
 const { Menu, getCurrentWindow } = remote;
-const _mainWindowRendererProcess = getMainWindowRendererProcess();
+const mainWindow = getMainWindow();
 const filesDragGhostImg = new Image(0, 0);
 filesDragGhostImg.src = imgsrc('FileExplorer/copy.svg');
 let allowFileDropFlag = false;
@@ -139,7 +139,7 @@ class FileExplorer extends Component {
   componentWillUnmount() {
     this.deregisterAccelerators();
 
-    _mainWindowRendererProcess.webContents.removeListener(
+    mainWindow.webContents.removeListener(
       'fileExplorerToolbarActionCommunication',
       () => {}
     );
@@ -395,23 +395,17 @@ class FileExplorer extends Component {
           break;
         }
 
-        _mainWindowRendererProcess.webContents.send(
-          'fileExplorerToolbarActionCommunication',
-          {
-            type,
-            deviceType: _focussedFileExplorerDeviceType
-          }
-        );
+        mainWindow.webContents.send('fileExplorerToolbarActionCommunication', {
+          type,
+          deviceType: _focussedFileExplorerDeviceType
+        });
         break;
 
       case 'refresh':
-        _mainWindowRendererProcess.webContents.send(
-          'fileExplorerToolbarActionCommunication',
-          {
-            type,
-            deviceType: _focussedFileExplorerDeviceType
-          }
-        );
+        mainWindow.webContents.send('fileExplorerToolbarActionCommunication', {
+          type,
+          deviceType: _focussedFileExplorerDeviceType
+        });
         break;
 
       case 'up':
@@ -419,13 +413,10 @@ class FileExplorer extends Component {
           break;
         }
 
-        _mainWindowRendererProcess.webContents.send(
-          'fileExplorerToolbarActionCommunication',
-          {
-            type,
-            deviceType: _focussedFileExplorerDeviceType
-          }
-        );
+        mainWindow.webContents.send('fileExplorerToolbarActionCommunication', {
+          type,
+          deviceType: _focussedFileExplorerDeviceType
+        });
         break;
 
       case 'selectAll':
