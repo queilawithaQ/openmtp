@@ -20,7 +20,7 @@ coverage
 .lock-wscript
 
 # Compiled binary addons (http://nodejs.org/api/addons.html)
-build/Release
+build*
 .eslintcache
 
 # Dependency directory
@@ -61,5 +61,5 @@ todo.txt
 *yarn-error.log
 eslint-common-rules.txt
 
-build/entitlements.mas.plist
+resources/entitlements.mas.plist
 *embedded.provisionprofile

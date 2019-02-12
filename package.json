@@ -78,7 +78,7 @@
     ],
     "extraFiles": [
       {
-        "from": "build/mac/bin",
+        "from": "resources/mac/bin",
         "to": "Resources/bin",
         "filter": [
           "**/*"
@@ -88,7 +88,7 @@
     "mac": {
       "type": "distribution",
       "category": "public.app-category.productivity",
-      "icon": "build/icon.icns",
+      "icon": "resources/icon.icns",
       "target": [
         "dmg",
         "zip"
@@ -97,8 +97,8 @@
     "mas": {
       "type": "distribution",
       "category": "public.app-category.productivity",
-      "entitlements": "build/entitlements.mas.plist",
-      "icon": "build/icon.icns",
+      "entitlements": "resources/entitlements.mas.plist",
+      "icon": "resources/icon.icns",
       "binaries": [
         "dist/mas/OpenMTP.app/Contents/Resources/bin/mtp-cli"
       ]
