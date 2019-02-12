@@ -75,7 +75,7 @@ export const escapeShellMtp = cmd => {
     .replace(/"/g, `\\\\\\"`);
 };
 
-const mtpCli = `"${escapeShellMtp(_mtpCli)}"`;
+const mtpCli = `${escapeShellMtp(_mtpCli)}`;
 
 const filterOutMtpLines = (string, index) => {
   return (

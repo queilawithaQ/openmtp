@@ -103,6 +103,7 @@
       ]
     },
     "dmg": {
+      "title": "${productName}-${version}",
       "contents": [
         {
           "x": 130,
@@ -231,7 +232,7 @@
     "electron-debug": "^2.0.0",
     "electron-ga": "^1.0.6",
     "electron-is": "^3.0.0",
-    "electron-main-window": "^1.0.1",
+    "electron-main-window": "^1.0.4",
     "electron-root-path": "^1.0.1",
     "electron-updater": "^4.0.6",
     "fs-extra": "^7.0.1",
