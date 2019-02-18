@@ -19,9 +19,12 @@ class FileExplorerTableBodyGridWrapperRender extends PureComponent {
     this.state = {
       items: this.props.tableSort.slice(0, this.filesPreFetchCount)
     };
+
+    this._isMounted = false;
   }
 
   componentDidMount() {
+    this._isMounted = true;
     this.recursiveFilesFetch();
   }
 
@@ -38,6 +41,10 @@ class FileExplorerTableBodyGridWrapperRender extends PureComponent {
   }
 
   recursiveFilesFetch = () => {
+    if (!this._isMounted) {
+      return null;
+    }
+
     this.recursiveFilesFetchTimeOut = setTimeout(() => {
       const hasMore = this.state.items.length + 1 < this.props.tableSort.length;
 

@@ -487,7 +487,7 @@ export const fetchMtpStorageOptions = async ({ ...args }) => {
 
 export const asyncReadMtpDir = async ({
   ignoreHiddenFiles,
-  filepath = '/'
+  filePath = '/'
 }) => {
   try {
     const {
@@ -501,7 +501,7 @@ export const asyncReadMtpDir = async ({
       error: listMtpFileTreeError,
       data: listMtpFileTreeData
     } = await mtpObj.listMtpFileTree({
-      folderPath: filepath,
+      folderPath: filePath,
       recursive: false,
       ignoreHiddenFiles
     });

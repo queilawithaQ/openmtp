@@ -31,7 +31,7 @@ class Home extends Component {
                 deviceType={DEVICES_TYPE_CONST.mtp}
               />
               <FileExplorer
-                hideColList={['size']}
+                hideColList={[]}
                 deviceType={DEVICES_TYPE_CONST.mtp}
               />
             </div>
