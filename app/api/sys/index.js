@@ -20,8 +20,8 @@ import findLodash from 'lodash/find';
 import { log } from '../../utils/log';
 import { mtp as _mtpCli } from '../../utils/binaries';
 
-import { DEVICES_LABEL, DEVICES_TYPE_CONST } from '../../constants';
-import { baseName, getExtension } from '../../utils/paths';
+import { DEVICES_TYPE_CONST } from '../../constants';
+import { baseName } from '../../utils/paths';
 import {
   clearFileTransfer,
   fetchDirList,
@@ -37,9 +37,13 @@ import {
   undefinedOrNull
 } from '../../utils/funcs';
 import { msToTime, unixTimestampNow } from '../../utils/date';
+import MTP_KERNEL from '../../../mtp-kernel';
 
 const readdir = Promise.promisify(fsReaddir);
 const execPromise = Promise.promisify(exec);
+
+const mtpObj = new MTP_KERNEL();
+let mountedMtpDevice = null;
 
 /**
  * This hack is to support flex quotes parser for mtp cli.
@@ -245,7 +249,7 @@ export const checkFileExists = async (
 /**
   Local device ->
  */
-export const asyncReadLocalDir = async ({ filePath, ignoreHidden }) => {
+export const asyncReadLocalDir = async ({ filePath, ignoreHiddenFiles }) => {
   try {
     const response = [];
     const { error, data } = await readdir(filePath, 'utf8')
@@ -270,7 +274,7 @@ export const asyncReadLocalDir = async ({ filePath, ignoreHidden }) => {
     let files = data;
 
     files = data.filter(junk.not);
-    if (ignoreHidden) {
+    if (ignoreHiddenFiles) {
       // eslint-disable-next-line no-useless-escape
       files = data.filter(item => !/(^|\/)\.[^\/\.]/g.test(item));
     }
@@ -415,160 +419,100 @@ export const newLocalFolder = async ({ newFolderPath }) => {
 /**
  MTP device ->
  */
-export const fetchMtpStorageOptions = async () => {
+
+/**
+ *
+ * Detect MTP
+ */
+export const mtpInit = async () => {
+  mtpObj.init();
+
+  const { error, data } = await mtpObj.detectMtp();
+
+  if (error) {
+    log.error(error, `mtpInit`, false);
+
+    mountedMtpDevice = null;
+    return { error, data: null };
+  }
+
+  mountedMtpDevice = data;
+
+  return {
+    error: null,
+    data
+  };
+};
+
+const verifyMountedMtpDevice = async () => {
+  if (!mountedMtpDevice) {
+    const { error: mtpInitError } = await mtpInit();
+
+    if (mtpInitError) {
+      log.error(mtpInitError, `mountedMtpDevice`, false);
+
+      return { error: mtpInitError, data: null };
+    }
+  }
+
+  return { error: null, data: null };
+};
+
+export const fetchMtpStorageOptions = async ({ ...args }) => {
   try {
-    const { data, error, stderr } = await promisifiedExec(
-      `${mtpCli} "storage-list"`
-    );
+    const {
+      error: verifyMountedMtpDeviceError
+    } = await verifyMountedMtpDevice();
 
-    if (error || stderr) {
-      log.error(
-        `${error} : ${stderr}`,
-        `fetchMtpStorageOptions -> storage-list error`,
-        false
-      );
-      return { error, stderr, data: null };
+    if (verifyMountedMtpDeviceError) {
+      return { error: verifyMountedMtpDeviceError, data: null };
     }
 
-    const _storageList = splitIntoLines(data);
+    const {
+      error: setStorageDevicesError,
+      data
+    } = await mtpObj.setStorageDevices({ ...args });
 
-    const descMatchPattern = /description:(.*)/i;
-    const storageIdMatchPattern = /([^\D]+)/;
+    if (setStorageDevicesError) {
+      log.error(setStorageDevicesError, `fetchMtpStorageOptions`, false);
 
-    let storageList = {};
-    _storageList
-      .filter((a, index) => !filterOutMtpLines(a, index))
-      .map((a, index) => {
-        if (!a) {
-          return null;
-        }
-        const _matchDesc = descMatchPattern.exec(a);
-        const _matchedStorageId = storageIdMatchPattern.exec(a);
-
-        if (
-          typeof _matchDesc === 'undefined' ||
-          _matchDesc === null ||
-          typeof _matchDesc[1] === 'undefined' ||
-          typeof _matchedStorageId === 'undefined' ||
-          _matchedStorageId === null ||
-          typeof _matchedStorageId[1] === 'undefined'
-        ) {
-          return null;
-        }
-
-        const matchDesc = _matchDesc[1].trim();
-        const matchedStorageId = _matchedStorageId[1].trim();
-        storageList = {
-          ...storageList,
-          [matchedStorageId]: {
-            name: matchDesc,
-            selected: index === 0
-          }
-        };
-
-        return storageList;
-      });
-
-    if (
-      typeof storageList === 'undefined' ||
-      storageList === null ||
-      storageList.length < 1
-    ) {
-      return {
-        error: `${
-          DEVICES_LABEL[DEVICES_TYPE_CONST.mtp]
-        } storage not accessible`,
-        stderr: null,
-        data: null
-      };
+      return { error: setStorageDevicesError, data: null };
     }
 
-    return { error: null, stderr: null, data: storageList };
+    return { error: null, data };
   } catch (e) {
     log.error(e);
   }
 };
 
 export const asyncReadMtpDir = async ({
-  filePath,
-  ignoreHidden,
-  mtpStoragesListSelected
+  ignoreHiddenFiles,
+  filepath = '/'
 }) => {
   try {
-    const mtpCmdChopIndex = {
-      type: 2,
-      dateAdded: 4,
-      timeAdded: 5
-    };
-    const response = [];
-    const storageSelectCmd = `"storage ${mtpStoragesListSelected}"`;
+    const {
+      error: verifyMountedMtpDeviceError
+    } = await verifyMountedMtpDevice();
+    if (verifyMountedMtpDeviceError) {
+      return { error: verifyMountedMtpDeviceError, data: null };
+    }
 
     const {
-      data: filePropsData,
-      error: filePropsError,
-      stderr: filePropsStderr
-    } = await promisifiedExec(
-      `${mtpCli} ${storageSelectCmd} "lsext \\"${escapeShellMtp(filePath)}\\""`
-    );
+      error: listMtpFileTreeError,
+      data: listMtpFileTreeData
+    } = await mtpObj.listMtpFileTree({
+      folderPath: filepath,
+      recursive: false,
+      ignoreHiddenFiles
+    });
 
-    if (filePropsError || filePropsStderr) {
-      log.error(
-        `${filePropsError} : ${filePropsStderr}`,
-        `asyncReadMtpDir -> lsext error`
-      );
-      return { error: filePropsError, stderr: filePropsStderr, data: null };
+    if (listMtpFileTreeError) {
+      log.error(listMtpFileTreeError, `asyncReadMtpDir`, false);
+
+      return { error: listMtpFileTreeError, data: null };
     }
 
-    let fileProps = splitIntoLines(filePropsData);
-
-    fileProps = fileProps.filter((a, index) => !filterOutMtpLines(a, index));
-
-    for (let i = 0; i < fileProps.length; i += 1) {
-      const item = fileProps[i];
-      const matchedProps = item.match(
-        /^(.*?)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}/g
-      );
-
-      if (matchedProps === null || matchedProps.length < 1) {
-        continue; // eslint-disable-line no-continue
-      }
-
-      const _matchedProps = matchedProps[0];
-      const itemSplit = item.split(_matchedProps);
-
-      if (itemSplit === null || itemSplit.length < 2 || itemSplit[1] === '') {
-        continue; // eslint-disable-line no-continue
-      }
-      const matchedFileName = itemSplit[1].replace(/^\s{2}|\s$/g, '');
-      const filePropsList = _matchedProps.replace(/\s\s+/g, ' ').split(' ');
-
-      // eslint-disable-next-line no-useless-escape
-      if (ignoreHidden && /(^|\/)\.[^\/\.]/g.test(matchedFileName)) {
-        continue; // eslint-disable-line no-continue
-      }
-
-      const fullPath = path.resolve(filePath, matchedFileName);
-      const isFolder = filePropsList[mtpCmdChopIndex.type] === '3001';
-      const dateTime = `${filePropsList[mtpCmdChopIndex.dateAdded]} ${
-        filePropsList[mtpCmdChopIndex.timeAdded]
-      }`;
-      const extension = getExtension(fullPath, isFolder);
-
-      // avoid duplicate values
-      if (findLodash(response, { path: fullPath })) {
-        continue; // eslint-disable-line no-continue
-      }
-      response.push({
-        name: matchedFileName,
-        path: fullPath,
-        extension,
-        size: null,
-        isFolder,
-        dateAdded: moment(dateTime).format('YYYY-MM-DD HH:mm:ss')
-      });
-    }
-
-    return { error: null, stderr: null, data: response };
+    return { error: null, data: listMtpFileTreeData };
   } catch (e) {
     log.error(e);
   }

@@ -63,3 +63,17 @@ eslint-common-rules.txt
 
 resources/entitlements.mas.plist
 *embedded.provisionprofile
+*prebuilds
+
+*.dll
+*.o
+*.lo
+*.la
+*.log
+.deps
+.libs
+*autom4te.cache*
+libmtp.mpd/config.log
+libmtp.mpd/doc/Makefile*
+*.gypi
+test-mtp.js

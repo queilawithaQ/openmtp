@@ -66,3 +66,17 @@ app/dll
 .prettierrc
 .stylelintrc
 .eslintrc.json
+
+*prebuilds
+
+*.dll
+*.o
+*.lo
+*.la
+*.log
+.deps
+.libs
+*autom4te.cache*
+libmtp.mpd/config.log
+libmtp.mpd/doc/Makefile*
+*.gypi

@@ -33,7 +33,6 @@ export default {
 
   output: {
     path: PATHS.app,
-    // https://github.com/webpack/webpack/issues/1114
     libraryTarget: 'commonjs2'
   },
 

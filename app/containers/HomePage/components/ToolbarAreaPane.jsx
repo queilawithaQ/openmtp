@@ -117,7 +117,7 @@ class ToolbarAreaPane extends PureComponent {
       { selectedValue, mtpStoragesList },
       {
         filePath: DEVICES_DEFAULT_PATH.mtp,
-        ignoreHidden: hideHiddenFiles[deviceType]
+        ignoreHiddenFiles: hideHiddenFiles[deviceType]
       },
       deviceType
     );
@@ -160,7 +160,7 @@ class ToolbarAreaPane extends PureComponent {
         actionCreateReloadDirList(
           {
             filePath,
-            ignoreHidden: hideHiddenFiles[deviceType]
+            ignoreHiddenFiles: hideHiddenFiles[deviceType]
           },
           deviceType,
           mtpStoragesList
@@ -190,7 +190,7 @@ class ToolbarAreaPane extends PureComponent {
     actionCreateFetchDirList(
       {
         filePath,
-        ignoreHidden: hideHiddenFiles[deviceType]
+        ignoreHiddenFiles: hideHiddenFiles[deviceType]
       },
       deviceType
     );
@@ -213,7 +213,7 @@ class ToolbarAreaPane extends PureComponent {
       },
       {
         filePath: currentBrowsePath[deviceType],
-        ignoreHidden: hideHiddenFiles[deviceType]
+        ignoreHiddenFiles: hideHiddenFiles[deviceType]
       }
     );
   };

@@ -111,7 +111,9 @@ export function setMtpStorageOptions(
 ) {
   return async dispatch => {
     try {
-      const { error, stderr, data } = await fetchMtpStorageOptions();
+      const { error, stderr, data } = await fetchMtpStorageOptions({
+        storageIndex: 0
+      });
       dispatch(
         processMtpOutput({
           deviceType,

@@ -1,19 +1,20 @@
 {
 	"targets": [
 		{
+		  	"target_name": "mtp",
 			"includes": [
 				"auto.gypi"
 			],
 			"sources": [
-				"mtp-kernel/src/mtp.cc"
+				"mtp-kernel/native/mtp.cc"
 			],
 			"conditions" : [
 				['OS=="win"', {
 					"include_dirs+": [
-						"mtp-kernel/src/inc"
+						"mtp-kernel/native/inc"
 					],
 					"libraries": [
-						"../src/lib/libmtp-9.lib"
+						"../native/lib/libmtp-9.lib"
 					]
 				}],
 				['OS!="win"', {
@@ -22,6 +23,16 @@
                     ]
 				}]
 			]
+		},
+		{
+		  "target_name": "action_after_build",
+		  "type": "none",
+		  "copies": [
+			{
+			  "files": [ "<(PRODUCT_DIR)/nbind.node" ],
+			  "destination": "resources/mac/native-addons/mtp"
+			}
+		  ]
 		}
 	],
 	"includes": [

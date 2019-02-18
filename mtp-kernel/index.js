@@ -1,37 +1,22 @@
 'use strict';
 
-/* eslint-disable */
+/* eslint-disable no-await-in-loop, no-continue */
 
-const mkdirp = require('mkdirp');
-const fs = require('fs');
-const path = require('path');
-const junk = require('junk');
-const findLodash = require('lodash/find');
-const mtpHelper = require('./mtp-helper');
-const MTP_FLAGS = require('./mtp-device-flags').FLAGS;
+import mkdirp from 'mkdirp';
+import fs from 'fs';
+import path from 'path';
+import junk from 'junk';
+import findLodash from 'lodash/find';
+import moment from 'moment';
+import { mtpNativeModule } from '../app/utils/binaries';
+import { MTP_FLAGS } from './mtp-device-flags';
+import { isArray, quickHash, undefinedOrNull } from '../app/utils/funcs';
+import { getExtension } from '../app/utils/paths';
 
-function undefinedOrNull(_var) {
-  return typeof _var === 'undefined' || _var === null;
-}
-
-function quickHash(str) {
-  let hash = 0;
-  let i;
-  let chr;
-
-  if (str.length === 0) {
-    return hash;
-  }
-  for (i = 0; i < str.length; i += 1) {
-    chr = str.charCodeAt(i);
-    hash = (hash << 5) - hash + chr; // eslint-disable-line no-bitwise
-    hash |= 0; // eslint-disable-line no-bitwise
-  }
-  return hash;
-}
-
+// todo: move to fileops
 function isWritable(folderPath) {
   try {
+    // eslint-disable-next-line no-bitwise
     fs.accessSync(folderPath, fs.R_OK | fs.W_OK);
     return true;
   } catch (e) {
@@ -39,10 +24,7 @@ function isWritable(folderPath) {
   }
 }
 
-function isArray(n) {
-  return Array.isArray(n);
-}
-
+// todo: move to fileops
 async function promisifiedMkdir({ newFolderPath }) {
   try {
     return new Promise(resolve => {
@@ -56,15 +38,14 @@ async function promisifiedMkdir({ newFolderPath }) {
 }
 
 /**
- * MTP Class
+ * MTP Kernel Class
  */
-
-class MTP {
+export default class MTP_KERNEL {
   /**
    * constructor
    */
   constructor() {
-    this.mtpHelper = mtpHelper;
+    this.mtpNativeModule = mtpNativeModule;
     this.device = null;
     this.storageId = null;
 
@@ -72,13 +53,16 @@ class MTP {
       NO_MTP: `No MTP device found`,
       NO_STORAGE: `MTP storage not accessible`,
       LOCAL_FOLDER_NOT_FOUND: `Source folder not found`,
+      ILLEGAL_FILE_NAME: `Illegal file name`,
       RENAME_FAILED: `Some error occured while renaming`,
       FILE_INFO_FAILED: `Some error occured while fetching the file information`,
       DOWNLOAD_FILE_FAILED: `Some error occured while transfering files from MTP device`,
       UPLOAD_FILE_FAILED: `Some error occured while transfering files to MTP device`,
       NO_FILES_COPIED: `No files were transfering. Refresh your MTP`,
       CREATE_FOLDER_FAILED: `Some error occured while creating a new folder`,
-      CREATE_FOLDER_FILE_FAILED: `A file with a similar name exists`
+      CREATE_FOLDER_FILE_FAILED: `A file with a similar name exists`,
+      INVALID_PATH_RESOLVE: `Illegal path, could not resolve the path`,
+      INVALID_NOT_FOUND: `Path not found`
     };
   }
 
@@ -86,10 +70,9 @@ class MTP {
    * Init
    * return: {void}
    */
-
   init() {
     try {
-      this.mtpHelper.Init();
+      this.mtpNativeModule.Init();
     } catch (e) {
       console.error(`MTP -> init`, e);
     }
@@ -103,7 +86,7 @@ class MTP {
     let error = null;
 
     return new Promise(resolve => {
-      return this.mtpHelper.Detect_Raw_Devices((err, rawDevices) => {
+      return this.mtpNativeModule.Detect_Raw_Devices((err, rawDevices) => {
         try {
           if (err) {
             switch (err) {
@@ -117,11 +100,13 @@ class MTP {
 
             return resolve({
               data: null,
-              error: error
+              error
             });
           }
 
-          this.device = this.mtpHelper.Open_Raw_Device_Uncached(rawDevices[0]);
+          this.device = this.mtpNativeModule.Open_Raw_Device_Uncached(
+            rawDevices[0]
+          );
 
           if (undefinedOrNull(this.device)) {
             return resolve({
@@ -134,9 +119,9 @@ class MTP {
             error: null,
             data: {
               device: this.device,
-              modelName: this.mtpHelper.Get_Modelname(this.device),
-              serialNumber: this.mtpHelper.Get_Serialnumber(this.device),
-              deviceVersion: this.mtpHelper.Get_Deviceversion(this.device)
+              modelName: this.mtpNativeModule.Get_Modelname(this.device),
+              serialNumber: this.mtpNativeModule.Get_Serialnumber(this.device),
+              deviceVersion: this.mtpNativeModule.Get_Deviceversion(this.device)
             }
           });
         } catch (e) {
@@ -188,7 +173,7 @@ class MTP {
     const storageData = {};
 
     try {
-      this.mtpHelper.Get_Storage(
+      this.mtpNativeModule.Get_Storage(
         this.device,
         MTP_FLAGS.STORAGE_SORTBY_NOTSORTED
       );
@@ -264,8 +249,24 @@ class MTP {
           : Object.keys(listStorageDevicesData)[0];
       }
 
+      let storageList;
+
+      Object.keys(listStorageDevicesData).map(a => {
+        const item = listStorageDevicesData[a];
+
+        storageList = {
+          ...storageList,
+          [a]: {
+            name: item.description,
+            selected: a === this.storageId
+          }
+        };
+
+        return storageList;
+      });
+
       return Promise.resolve({
-        data: parseInt(this.storageId),
+        data: storageList,
         error: null
       });
     } catch (e) {
@@ -286,7 +287,7 @@ class MTP {
     if (!this.device) return this.throwMtpError();
 
     try {
-      this.mtpHelper.Release_Device(this.device);
+      this.mtpNativeModule.Release_Device(this.device);
       this.device = null;
       return Promise.resolve({
         data: true,
@@ -304,14 +305,37 @@ class MTP {
 
   /**
    * Get File Info
-   * @param fileId:{int}
+   * @param filePath:{string}
+   * @param fileId:{int} (alternative to filePath)
    * @returns {Promise<{data: *, error: *}>}
    */
-  getFileInfo({ fileId }) {
+  async getFileInfo({ filePath = null, fileId = null }) {
     if (!this.device) return this.throwMtpError();
 
     try {
-      const fileInfo = this.mtpHelper.Get_Filemetadata(this.device, fileId);
+      if (!undefinedOrNull(filePath)) {
+        const {
+          error: resolvePathError,
+          data: resolvePathData
+        } = await this.resolvePath({ filePath });
+
+        if (resolvePathError) {
+          return Promise.resolve({
+            data: null,
+            error: resolvePathError
+          });
+        }
+
+        return Promise.resolve({
+          data: resolvePathData,
+          error: null
+        });
+      }
+
+      const fileInfo = this.mtpNativeModule.Get_Filemetadata(
+        this.device,
+        fileId
+      );
 
       if (undefinedOrNull(fileInfo) || undefinedOrNull(fileInfo.name)) {
         return Promise.resolve({
@@ -335,19 +359,110 @@ class MTP {
   }
 
   /**
-   * File Exists
-   * @param fileName:{string}
-   * @param parentId:{int}
+   * Resolve Path
+   * @param filePath:{string}
    * @returns {Promise<{data: *, error: *}>}
    */
-  async fileExists({ fileName, parentId }) {
+  async resolvePath({ filePath }) {
     if (!this.device) return this.throwMtpError();
 
     try {
+      if (undefinedOrNull(filePath)) {
+        return Promise.resolve({
+          data: null,
+          error: this.ERR.INVALID_PATH_RESOLVE
+        });
+      }
+
+      const _filePath = path.resolve(filePath);
+      const rootPathProps = { id: MTP_FLAGS.FILES_AND_FOLDERS_ROOT };
+
+      if (_filePath === '/') {
+        return Promise.resolve({
+          data: rootPathProps,
+          error: null
+        });
+      }
+
+      const filePathChunks = _filePath.split('/');
+      let foundItem = rootPathProps;
+
+      for (let i = 1; i < filePathChunks.length; i += 1) {
+        const item = filePathChunks[i];
+
+        const {
+          error: listMtpFileTreeError,
+          data: listMtpFileTreeData
+        } = await this.__listMtpFileTree({
+          folderId: foundItem.id,
+          recursive: false
+        });
+
+        if (listMtpFileTreeError) {
+          return Promise.resolve({
+            data: null,
+            error: listMtpFileTreeError
+          });
+        }
+
+        foundItem = findLodash(listMtpFileTreeData, { name: item });
+
+        if (!foundItem) {
+          return Promise.resolve({
+            data: null,
+            error: this.ERR.INVALID_NOT_FOUND
+          });
+        }
+      }
+
+      return Promise.resolve({
+        data: foundItem,
+        error: null
+      });
+    } catch (e) {
+      console.error(`MTP -> resolvePath`, e);
+
+      return Promise.resolve({
+        data: null,
+        error: e
+      });
+    }
+  }
+
+  /**
+   * File Exists
+   * @param filePath:{string}
+   * @param fileName:{string} (alternative to filePath; use along with parentId)
+   * @param parentId:{int} (alternative to filePath; use along with parentId)
+   * @returns {Promise<{data: *, error: *}>}
+   */
+  async fileExists({ filePath = null, fileName = null, parentId = null }) {
+    if (!this.device) return this.throwMtpError();
+
+    try {
+      if (!undefinedOrNull(filePath)) {
+        const {
+          error: resolvePathError,
+          data: resolvePathData
+        } = await this.resolvePath({ filePath });
+
+        if (resolvePathError) {
+          return Promise.resolve({
+            data: null,
+            error: resolvePathError
+          });
+        }
+
+        return Promise.resolve({
+          data: resolvePathData,
+          error: null
+        });
+      }
+
       const {
         error: listMtpFileTreeError,
         data: listMtpFileTreeData
-      } = await this.listMtpFileTree({
+      } = await this.__listMtpFileTree({
         folderId: parentId,
         recursive: false
       });
@@ -383,14 +498,32 @@ class MTP {
 
   /**
    * Delete File
-   * @param fileId:{int}
+   * @param filePath:{string}
+   * @param fileId:{int} (alternative to filePath)
    * @returns {Promise<{data: *, error: *}>}
    */
-  deleteFile({ fileId }) {
+  async deleteFile({ filePath = null, fileId = null }) {
     if (!this.device) return this.throwMtpError();
 
     try {
-      this.mtpHelper.Destroy_file(this.device, fileId);
+      let _fileId = fileId;
+
+      if (!undefinedOrNull(filePath)) {
+        const {
+          error: resolvePathError,
+          data: resolvePathData
+        } = await this.resolvePath({ filePath });
+
+        if (resolvePathError) {
+          return Promise.resolve({
+            data: null,
+            error: resolvePathError
+          });
+        }
+        _fileId = resolvePathData.id;
+      }
+
+      this.mtpNativeModule.Destroy_file(this.device, _fileId);
 
       return Promise.resolve({
         data: true,
@@ -408,20 +541,49 @@ class MTP {
 
   /**
    * Rename File
-   * @param fileId:{int}
-   * @param currentFileName:{string}
+   * @param filePath:{string}
    * @param newfileName:{string}
+   * @param fileId:{int} (alternative to filePath)
    * @returns {Promise<{data: *, error: *}>}
    */
-  async renameFile({ fileId, currentFileName, newfileName }) {
+  async renameFile({ filePath = null, newfileName, fileId = null }) {
     if (!this.device) return this.throwMtpError();
 
     try {
-      const file = new this.mtpHelper.file_t();
-      file.id = fileId;
+      if (
+        undefinedOrNull(newfileName) ||
+        newfileName.indexOf('/') !== -1 ||
+        newfileName.trim() === ''
+      ) {
+        return Promise.resolve({
+          data: null,
+          error: this.ERR.ILLEGAL_FILE_NAME
+        });
+      }
+
+      let _fileId = fileId;
+
+      if (!undefinedOrNull(filePath)) {
+        const {
+          error: resolvePathError,
+          data: resolvePathData
+        } = await this.resolvePath({ filePath });
+
+        if (resolvePathError) {
+          return Promise.resolve({
+            data: null,
+            error: resolvePathError
+          });
+        }
+        _fileId = resolvePathData.id;
+      }
+
+      // eslint-disable-next-line new-cap
+      const file = new this.mtpNativeModule.file_t();
+      file.id = _fileId;
       file.storageId = this.storageId;
 
-      const renamed = this.mtpHelper.Set_File_Name(
+      const renamed = this.mtpNativeModule.Set_File_Name(
         this.device,
         file,
         newfileName
@@ -431,7 +593,7 @@ class MTP {
         const {
           error: getFileInfoError,
           data: getFileInfoData
-        } = await this.getFileInfo({ fileId });
+        } = await this.getFileInfo({ fileId: _fileId });
 
         if (!getFileInfoError && getFileInfoData.name !== newfileName) {
           return Promise.resolve({
@@ -457,28 +619,65 @@ class MTP {
 
   /**
    * Create Folder
-   * @param newFolderName: {string}
-   * @param parentId: {int}
+   * @param newFolderPath: {string}
+   * @param parentId: {int} (alternative to filePath; use along with newFolderName)
+   * @param newFolderName: {string} (alternative to filePath; use along with parentId)
    * @returns {Promise<{data: *, error: *}>}
    */
-  async createFolder({ newFolderName, parentId }) {
+  async createFolder({
+    newFolderPath = null,
+    parentId = null,
+    newFolderName = null
+  }) {
     if (!this.device) return this.throwMtpError();
 
+    let _parentId = parentId;
+    let _newFolderName = newFolderName;
+
     try {
-      const createdFolder = this.mtpHelper.Create_Folder(
-        this.device,
-        newFolderName,
-        parentId,
-        this.storageId
-      );
+      let createdFolder = null;
+
+      if (!undefinedOrNull(newFolderPath)) {
+        const _newFolderPath = path.resolve(newFolderPath);
+        _newFolderName = path.basename(_newFolderPath);
+        const parentPath = path.dirname(_newFolderPath);
+
+        const {
+          error: resolvePathError,
+          data: resolvePathData
+        } = await this.resolvePath({ filePath: parentPath });
+
+        if (resolvePathError) {
+          return Promise.resolve({
+            data: null,
+            error: resolvePathError
+          });
+        }
+
+        createdFolder = this.mtpNativeModule.Create_Folder(
+          this.device,
+          _newFolderName,
+          resolvePathData.id,
+          this.storageId
+        );
+
+        _parentId = resolvePathData.id;
+      } else {
+        createdFolder = this.mtpNativeModule.Create_Folder(
+          this.device,
+          _newFolderName,
+          parentId,
+          this.storageId
+        );
+      }
 
       if (createdFolder === 0) {
         const {
           error: fileExistsError,
           data: fileExistsData
         } = await this.fileExists({
-          fileName: newFolderName,
-          parentId
+          fileName: _newFolderName,
+          parentId: _parentId
         });
 
         if (fileExistsError) {
@@ -526,23 +725,76 @@ class MTP {
   }
 
   /**
-   * List MTP File Tree
+   * List MTP File Tree using Folder Id
+   * @param folderPath: {string}
+   * @param ignoreHiddenFiles: {boolean}
+   * @param recursive: {boolean}
+   * @returns {Promise<{data: *, error: *}>}
+   */
+
+  async listMtpFileTree({
+    folderPath = null,
+    recursive = false,
+    ignoreHiddenFiles = false
+  }) {
+    const filePath = path.resolve(folderPath);
+
+    const {
+      error: resolvePathError,
+      data: resolvePathData
+    } = await this.resolvePath({ filePath });
+
+    if (resolvePathError) {
+      return Promise.resolve({
+        data: null,
+        error: resolvePathError
+      });
+    }
+
+    const {
+      error: listMtpFileTreeError,
+      data: listMtpFileTreeData
+    } = await this.__listMtpFileTree({
+      recursive,
+      ignoreHiddenFiles,
+      folderId: resolvePathData.id,
+      parentPath: filePath
+    });
+
+    if (listMtpFileTreeError) {
+      return Promise.resolve({
+        data: null,
+        error: listMtpFileTreeError
+      });
+    }
+
+    return Promise.resolve({
+      data: listMtpFileTreeData,
+      error: null
+    });
+  }
+
+  /**
+   * List MTP File Tree using Folder Id
    * @param folderId: {int}
    * @param recursive: {boolean}
    * @param fileTreeStructure: {array}
    * @param parentPath: {string}
+   * @param ignoreHiddenFiles: {boolean}
+   * @param filePath: {string}
    * @returns {Promise<{data: *, error: *}>}
    */
-  async listMtpFileTree({
+  async __listMtpFileTree({
     folderId,
     recursive = false,
     fileTreeStructure = [],
-    parentPath = ''
+    parentPath = '',
+    ignoreHiddenFiles = false
   }) {
     if (!this.device) return this.throwMtpError();
 
     try {
-      const files = this.mtpHelper.Get_Files_And_Folders(
+      const files = this.mtpNativeModule.Get_Files_And_Folders(
         this.device,
         this.storageId,
         folderId
@@ -550,23 +802,35 @@ class MTP {
 
       for (let i = 0; i < files.length; i += 1) {
         const file = files[i];
+
+        // eslint-disable-next-line no-useless-escape
+        if (ignoreHiddenFiles && /(^|\/)\.[^\/\.]/g.test(file.name)) {
+          continue; // eslint-disable-line no-continue
+        }
+
         const fullPath = path.join(parentPath, file.name);
+        const isFolder = MTP_FLAGS.FILETYPE_FOLDER === file.type;
+
         const fileInfo = {
           id: file.id,
           name: file.name,
           size: file.size,
-          isFolder: MTP_FLAGS.FILETYPE_FOLDER === file.type,
+          isFolder,
           parentId: file.parentId,
           type: file.type,
           storageId: file.storageId,
           path: fullPath,
+          extension: getExtension(fullPath, isFolder),
+          dateAdded: moment
+            .unix(file.modificationDate)
+            .format('YYYY-MM-DD HH:mm:ss'),
           children: []
         };
 
         const lastIndex = fileTreeStructure.push(fileInfo) - 1;
 
         if (MTP_FLAGS.FILETYPE_FOLDER === file.type && recursive) {
-          await this.listMtpFileTree({
+          await this.__listMtpFileTree({
             folderId: file.id,
             recursive,
             parentPath: fullPath,
@@ -618,12 +882,11 @@ class MTP {
         if (!junk.is(file)) {
           const fullPath = path.join(folderPath, file);
           const stats = fs.lstatSync(fullPath);
-          const size = stats.size;
           const isFolder = stats.isDirectory();
           const fileInfo = {
             id: quickHash(fullPath),
             name: file,
-            size,
+            size: stats.size,
             isFolder,
             path: fullPath,
             children: []
@@ -668,7 +931,7 @@ class MTP {
     if (!this.device) return this.throwMtpError();
 
     try {
-      const downloadedFile = this.mtpHelper.Get_File_To_File(
+      const downloadedFile = this.mtpNativeModule.Get_File_To_File(
         this.device,
         file.id,
         destinationFilePath,
@@ -740,10 +1003,7 @@ class MTP {
             });
           }
 
-          const {
-            error: downloadFileTreeError,
-            data: downloadFileTreeData
-          } = await this.downloadFileTree({
+          const { error: downloadFileTreeError } = await this.downloadFileTree({
             nodes: item.children,
             destinationFilePath: localFilePath,
             callback
@@ -755,13 +1015,11 @@ class MTP {
               error: downloadFileTreeError
             });
           }
+
           continue;
         }
 
-        const {
-          error: downloadedFileError,
-          data: downloadedFileData
-        } = await this.downloadFile({
+        const { error: downloadedFileError } = await this.downloadFile({
           destinationFilePath: localFilePath,
           file: item,
           callback
@@ -801,14 +1059,15 @@ class MTP {
     if (!this.device) return this.throwMtpError();
 
     try {
-      const file = new this.mtpHelper.file_t();
+      // eslint-disable-next-line new-cap
+      const file = new this.mtpNativeModule.file_t();
       file.size = size;
       file.name = path.basename(filePath);
       file.type = MTP_FLAGS.FILETYPE_UNKNOWN;
       file.parentId = parentId;
       file.storageId = this.storageId;
 
-      const uploadedFile = this.mtpHelper.Send_File_From_File(
+      const uploadedFile = this.mtpNativeModule.Send_File_From_File(
         this.device,
         filePath,
         file,
@@ -842,16 +1101,41 @@ class MTP {
 
   /**
    * Upload File Tree
-   * @param rootNode: {boolean}
    * @param nodes: {array}
-   * @param parentId: {int}
+   * @param folderPath:{string}
+   * @param parentId: {int} (alternative to folderPath)
    * @param callback: {fn}
    * @returns {Promise<{data: *, error: *}>}
    */
-  async uploadFileTree({ rootNode = false, nodes, parentId, callback }) {
+  async uploadFileTree({
+    nodes,
+    folderPath = null,
+    callback,
+    parentId = null
+  }) {
     if (!this.device) return this.throwMtpError();
 
+    let _parentId = parentId;
+
     try {
+      if (!undefinedOrNull(folderPath)) {
+        const filePath = path.resolve(folderPath);
+
+        const {
+          error: resolvePathError,
+          data: resolvePathData
+        } = await this.resolvePath({ filePath });
+
+        if (resolvePathError) {
+          return Promise.resolve({
+            data: null,
+            error: resolvePathError
+          });
+        }
+
+        _parentId = resolvePathData.id;
+      }
+
       for (let i = 0; i < nodes.length; i += 1) {
         const item = nodes[i];
 
@@ -861,7 +1145,7 @@ class MTP {
             data: createFolderData
           } = await this.createFolder({
             newFolderName: item.name,
-            parentId
+            parentId: _parentId
           });
 
           if (createFolderError) {
@@ -871,10 +1155,7 @@ class MTP {
             });
           }
 
-          const {
-            error: uploadFileTreeError,
-            data: uploadFileTreeData
-          } = await this.uploadFileTree({
+          const { error: uploadFileTreeError } = await this.uploadFileTree({
             nodes: item.children,
             parentId: createFolderData,
             callback
@@ -895,7 +1176,7 @@ class MTP {
           data: fileExistsData
         } = await this.fileExists({
           fileName: item.name,
-          parentId
+          parentId: _parentId
         });
 
         if (fileExistsError) {
@@ -906,10 +1187,9 @@ class MTP {
         }
 
         if (fileExistsData) {
-          const {
-            error: deleteFileError,
-            data: deleteFileData
-          } = await this.deleteFile({ fileId: fileExistsData.id });
+          const { error: deleteFileError } = await this.deleteFile({
+            fileId: fileExistsData.id
+          });
 
           if (deleteFileError) {
             return Promise.resolve({
@@ -919,12 +1199,9 @@ class MTP {
           }
         }
 
-        const {
-          error: uploadFileError,
-          data: uploadFileData
-        } = await this.uploadFile({
+        const { error: uploadFileError } = await this.uploadFile({
           filePath: item.path,
-          parentId,
+          parentId: _parentId,
           size: item.size,
           callback
         });
@@ -951,5 +1228,3 @@ class MTP {
     }
   }
 }
-
-module.exports.MTP = MTP;

@@ -24,6 +24,7 @@ import reducers from './reducers';
 import { copyJsonFileToSettings, freshInstall } from '../Settings/actions';
 import { analytics } from '../../utils/analyticsHelper';
 import { isConnected } from '../../utils/isOnline';
+import { mtpInit } from '../../api/sys';
 
 const appTheme = createMuiTheme(theme());
 
@@ -51,10 +52,21 @@ class App extends Component {
   componentDidMount() {
     try {
       bootLoader.cleanRotationFiles();
+      this.mountMtpDeviceOnStartup();
     } catch (e) {
       log.error(e, `App -> componentDidMount`);
     }
   }
+
+  mountMtpDeviceOnStartup = () => {
+    try {
+      mtpInit().catch(e => {
+        log.error(e, `App -> mountMtpDeviceOnStartup -> mtpInit`);
+      });
+    } catch (e) {
+      log.error(e, `App -> mountMtpDeviceOnStartup`);
+    }
+  };
 
   setFreshInstall() {
     try {

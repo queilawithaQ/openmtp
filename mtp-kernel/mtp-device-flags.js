@@ -1,8 +1,6 @@
 'use strict';
 
-/* eslint-disable */
-
-const FLAGS = {
+export const MTP_FLAGS = {
   STORAGE_SORTBY_NOTSORTED: 0,
   STORAGE_SORTBY_FREESPACE: 1,
   STORAGE_SORTBY_MAXSPACE: 2,
@@ -53,5 +51,3 @@ const FLAGS = {
   FILETYPE_PLAYLIST: 43,
   FILETYPE_UNKNOWN: 44
 };
-
-module.exports.FLAGS = FLAGS;

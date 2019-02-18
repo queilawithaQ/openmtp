@@ -28,9 +28,10 @@
     "postlint-fix": "prettier --ignore-path .eslintignore --single-quote --write '**/*.*{js,jsx,json}'",
     "postlint-styles-fix": "prettier --ignore-path .eslintignore --single-quote --write '**/*.{css,scss}'",
     "precommit": "lint-staged",
+    "install": "yarn build-node-gyp",
     "preinstall": "node ./internals/scripts/CheckYarn.js",
-    "postinstall": "yarn build-dll && electron-builder install-app-deps package.json && yarn build-node-gyp",
-    "build-node-gyp": "autogypi && node-gyp configure build"
+    "postinstall": "yarn build-dll && electron-builder install-app-deps package.json",
+    "build-node-gyp": "autogypi && HOME=~/.electron-gyp node-gyp rebuild --target=4.0.0 --arch=x64 --dist-url=https://atom.io/download/electron configure build"
   },
   "lint-staged": {
     "*.{js,jsx}": [

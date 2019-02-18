@@ -64,7 +64,7 @@ class Settings extends Component {
     actionCreateReloadDirList(
       {
         filePath: currentBrowsePath[deviceType],
-        ignoreHidden: toggle
+        ignoreHiddenFiles: toggle
       },
       deviceType,
       mtpStoragesList

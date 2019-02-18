@@ -119,7 +119,7 @@ class FileExplorer extends Component {
       actionCreateFetchMtpStorageOptions(
         {
           filePath: currentBrowsePath[deviceType],
-          ignoreHidden: hideHiddenFiles[deviceType]
+          ignoreHiddenFiles: hideHiddenFiles[deviceType]
         },
         deviceType
       );
@@ -221,7 +221,7 @@ class FileExplorer extends Component {
     actionCreateFetchDirList(
       {
         filePath: path,
-        ignoreHidden: hideHiddenFiles[deviceType]
+        ignoreHiddenFiles: hideHiddenFiles[deviceType]
       },
       deviceType
     );
@@ -909,7 +909,7 @@ class FileExplorer extends Component {
       },
       {
         filePath: currentBrowsePath[deviceType],
-        ignoreHidden: hideHiddenFiles[deviceType]
+        ignoreHiddenFiles: hideHiddenFiles[deviceType]
       }
     );
 
@@ -1114,7 +1114,7 @@ class FileExplorer extends Component {
       },
       {
         filePath: currentBrowsePath[deviceType],
-        ignoreHidden: hideHiddenFiles[deviceType]
+        ignoreHiddenFiles: hideHiddenFiles[deviceType]
       }
     );
 
@@ -1184,7 +1184,7 @@ class FileExplorer extends Component {
       },
       {
         filePath: destinationFolder,
-        ignoreHidden: hideHiddenFiles[deviceType]
+        ignoreHiddenFiles: hideHiddenFiles[deviceType]
       },
       deviceType
     );
@@ -1201,7 +1201,7 @@ class FileExplorer extends Component {
     actionCreateFetchDirList(
       {
         filePath: path,
-        ignoreHidden: hideHiddenFiles[deviceType]
+        ignoreHiddenFiles: hideHiddenFiles[deviceType]
       },
       deviceType
     );
