@@ -15,14 +15,20 @@ export default class FileExplorerTableBodyListWrapperRender extends PureComponen
     this.state = {
       items: this.props.tableSort.slice(0, this.filesPreFetchCount)
     };
+
+    this._isMounted = false;
   }
 
   componentDidMount() {
+    this._isMounted = true;
     this.recursiveFilesFetch();
   }
 
   componentWillUpdate(prevProps) {
-    if (prevProps.tableSort === this.props.tableSort) {
+    if (
+      JSON.stringify(prevProps.tableSort) ===
+      JSON.stringify(this.props.tableSort)
+    ) {
       return null;
     }
 
@@ -34,6 +40,18 @@ export default class FileExplorerTableBodyListWrapperRender extends PureComponen
   }
 
   recursiveFilesFetch = () => {
+    if (!this._isMounted) {
+      return null;
+    }
+
+    if (this.props.tableSort.length < 1) {
+      this.state = {
+        items: this.props.tableSort
+      };
+
+      return null;
+    }
+
     this.recursiveFilesFetchTimeOut = setTimeout(() => {
       const hasMore = this.state.items.length + 1 < this.props.tableSort.length;
 

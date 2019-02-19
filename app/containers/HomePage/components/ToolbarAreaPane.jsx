@@ -16,9 +16,9 @@ import {
   fetchDirList,
   processMtpOutput,
   processLocalOutput,
-  changeMtpStorage,
   getMtpStoragesListSelected,
-  reloadDirList
+  reloadDirList,
+  setMtpStorageOptions
 } from '../actions';
 import {
   makeDirectoryLists,
@@ -194,6 +194,7 @@ class ToolbarAreaPane extends PureComponent {
       },
       deviceType
     );
+
     if (isSidemenu) {
       this._handleToggleDrawer(false)();
     }
@@ -360,27 +361,18 @@ const mapDispatchToProps = (dispatch, ownProps) =>
           return null;
         }
 
-        let _mtpStoragesList = {};
-        Object.keys(mtpStoragesList).map(a => {
-          const item = mtpStoragesList[a];
-          let _selectedValue = false;
-          if (selectedValue === a) {
-            _selectedValue = true;
-          }
-
-          _mtpStoragesList = {
-            ...mtpStoragesList,
-            ..._mtpStoragesList,
-            [a]: {
-              ...item,
-              selected: _selectedValue
-            }
-          };
-          return null;
-        });
-
-        dispatch(changeMtpStorage({ ..._mtpStoragesList }));
-        dispatch(fetchDirList({ ...fetchDirArgs }, deviceType, getState));
+        dispatch(
+          setMtpStorageOptions(
+            { ...fetchDirArgs },
+            deviceType,
+            {
+              changeMtpStorageIdsOnlyOnDeviceChange: false,
+              mtpStoragesList: {},
+              newSelectedStorageId: selectedValue
+            },
+            getState
+          )
+        );
       },
 
       actionCreateToggleSettings: data => (_, getState) => {

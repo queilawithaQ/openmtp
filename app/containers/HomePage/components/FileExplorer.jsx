@@ -1505,7 +1505,8 @@ const mapDispatchToProps = (dispatch, ownProps) =>
             deviceType,
             {
               changeMtpStorageIdsOnlyOnDeviceChange: false,
-              mtpStoragesList: {}
+              mtpStoragesList: {},
+              newSelectedStorageId: null
             },
             getState
           )

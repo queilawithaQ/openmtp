@@ -257,6 +257,7 @@ export default class MTP_KERNEL {
         storageList = {
           ...storageList,
           [a]: {
+            storageId: a,
             name: item.description,
             selected: a === this.storageId
           }

@@ -29,7 +29,10 @@ class FileExplorerTableBodyGridWrapperRender extends PureComponent {
   }
 
   componentWillUpdate(prevProps) {
-    if (prevProps.tableSort === this.props.tableSort) {
+    if (
+      JSON.stringify(prevProps.tableSort) ===
+      JSON.stringify(this.props.tableSort)
+    ) {
       return null;
     }
 
@@ -42,6 +45,14 @@ class FileExplorerTableBodyGridWrapperRender extends PureComponent {
 
   recursiveFilesFetch = () => {
     if (!this._isMounted) {
+      return null;
+    }
+
+    if (this.props.tableSort.length < 1) {
+      this.state = {
+        items: this.props.tableSort
+      };
+
       return null;
     }
 

@@ -1,19 +1,20 @@
 'use strict';
 
+import findLodash from 'lodash/find';
+import { log } from '@Log';
 import prefixer from '../../utils/reducerPrefixer';
 import {
   asyncReadLocalDir,
   asyncReadMtpDir,
   fetchMtpStorageOptions
 } from '../../api/sys';
-import { log } from '@Log';
 import { throwAlert } from '../Alerts/actions';
 import { DEVICES_TYPE_CONST } from '../../constants';
 import {
   processMtpBuffer,
   processLocalBuffer
 } from '../../utils/processBufferOutput';
-import { isArraysEqual } from '../../utils/funcs';
+import { isArraysEqual, undefinedOrNull } from '../../utils/funcs';
 
 const prefix = '@@Home';
 const actionTypesList = [
@@ -111,8 +112,28 @@ export function setMtpStorageOptions(
 ) {
   return async dispatch => {
     try {
+      let _fetchMtpStorageOptions = { storageIndex: 0 };
+
+      if (!undefinedOrNull(deviceChangeCheck.newSelectedStorageId)) {
+        _fetchMtpStorageOptions = {
+          storageId: deviceChangeCheck.newSelectedStorageId
+        };
+      } else if (
+        !undefinedOrNull(deviceChangeCheck.mtpStoragesList) &&
+        Object.keys(deviceChangeCheck.mtpStoragesList) > 0
+      ) {
+        const foundItem = findLodash(deviceChangeCheck.mtpStoragesList, {
+          selected: true
+        });
+        if (foundItem) {
+          _fetchMtpStorageOptions = {
+            storageId: foundItem.storageId
+          };
+        }
+      }
+
       const { error, stderr, data } = await fetchMtpStorageOptions({
-        storageIndex: 0
+        ..._fetchMtpStorageOptions
       });
       dispatch(
         processMtpOutput({
@@ -301,7 +322,11 @@ export function reloadDirList(
           setMtpStorageOptions(
             { ...args },
             deviceType,
-            { changeMtpStorageIdsOnlyOnDeviceChange: true, mtpStoragesList },
+            {
+              changeMtpStorageIdsOnlyOnDeviceChange: true,
+              mtpStoragesList,
+              newSelectedStorageId: null
+            },
             getState
           )
         );
