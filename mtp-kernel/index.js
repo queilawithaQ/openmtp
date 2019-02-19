@@ -3,8 +3,8 @@
 /* eslint-disable no-await-in-loop, no-continue */
 
 import mkdirp from 'mkdirp';
-import fs from 'fs';
-import path from 'path';
+import fs, { accessSync, lstatSync, readdirSync, existsSync } from 'fs';
+import { join, resolve, basename, dirname } from 'path';
 import junk from 'junk';
 import findLodash from 'lodash/find';
 import moment from 'moment';
@@ -12,12 +12,13 @@ import { mtpNativeModule } from '../app/utils/binaries';
 import { MTP_FLAGS } from './mtp-device-flags';
 import { isArray, quickHash, undefinedOrNull } from '../app/utils/funcs';
 import { getExtension } from '../app/utils/paths';
+import { MTP_ERROR_FLAGS } from './mtp-error-flags';
 
 // todo: move to fileops
 function isWritable(folderPath) {
   try {
     // eslint-disable-next-line no-bitwise
-    fs.accessSync(folderPath, fs.R_OK | fs.W_OK);
+    accessSync(folderPath, fs.R_OK | fs.W_OK);
     return true;
   } catch (e) {
     return false;
@@ -48,22 +49,6 @@ export default class MTP_KERNEL {
     this.mtpNativeModule = mtpNativeModule;
     this.device = null;
     this.storageId = null;
-
-    this.ERR = {
-      NO_MTP: `No MTP device found`,
-      NO_STORAGE: `MTP storage not accessible`,
-      LOCAL_FOLDER_NOT_FOUND: `Source folder not found`,
-      ILLEGAL_FILE_NAME: `Illegal file name`,
-      RENAME_FAILED: `Some error occured while renaming`,
-      FILE_INFO_FAILED: `Some error occured while fetching the file information`,
-      DOWNLOAD_FILE_FAILED: `Some error occured while transfering files from MTP device`,
-      UPLOAD_FILE_FAILED: `Some error occured while transfering files to MTP device`,
-      NO_FILES_COPIED: `No files were transfering. Refresh your MTP`,
-      CREATE_FOLDER_FAILED: `Some error occured while creating a new folder`,
-      CREATE_FOLDER_FILE_FAILED: `A file with a similar name exists`,
-      INVALID_PATH_RESOLVE: `Illegal path, could not resolve the path`,
-      INVALID_NOT_FOUND: `Path not found`
-    };
   }
 
   /**
@@ -92,7 +77,7 @@ export default class MTP_KERNEL {
             switch (err) {
               case 5:
               default:
-                error = this.ERR.NO_MTP;
+                error = MTP_ERROR_FLAGS.NO_MTP;
                 break;
             }
 
@@ -111,7 +96,7 @@ export default class MTP_KERNEL {
           if (undefinedOrNull(this.device)) {
             return resolve({
               data: null,
-              error: this.ERR.NO_MTP
+              error: MTP_ERROR_FLAGS.NO_MTP
             });
           }
 
@@ -143,7 +128,7 @@ export default class MTP_KERNEL {
   throwMtpError() {
     return Promise.resolve({
       data: null,
-      error: this.ERR.NO_MTP
+      error: MTP_ERROR_FLAGS.NO_MTP
     });
   }
 
@@ -183,7 +168,7 @@ export default class MTP_KERNEL {
       if (undefinedOrNull(storageList) || !isArray(storageList)) {
         return Promise.resolve({
           data: null,
-          error: this.ERR.NO_STORAGE
+          error: MTP_ERROR_FLAGS.NO_STORAGE
         });
       }
 
@@ -230,7 +215,7 @@ export default class MTP_KERNEL {
       if (undefinedOrNull(listStorageDevicesData)) {
         return Promise.resolve({
           data: null,
-          error: this.ERR.NO_STORAGE
+          error: MTP_ERROR_FLAGS.NO_STORAGE
         });
       }
 
@@ -341,7 +326,7 @@ export default class MTP_KERNEL {
       if (undefinedOrNull(fileInfo) || undefinedOrNull(fileInfo.name)) {
         return Promise.resolve({
           data: null,
-          error: this.ERR.FILE_INFO_FAILED
+          error: MTP_ERROR_FLAGS.FILE_INFO_FAILED
         });
       }
 
@@ -371,11 +356,11 @@ export default class MTP_KERNEL {
       if (undefinedOrNull(filePath)) {
         return Promise.resolve({
           data: null,
-          error: this.ERR.INVALID_PATH_RESOLVE
+          error: MTP_ERROR_FLAGS.INVALID_PATH_RESOLVE
         });
       }
 
-      const _filePath = path.resolve(filePath);
+      const _filePath = resolve(filePath);
       const rootPathProps = { id: MTP_FLAGS.FILES_AND_FOLDERS_ROOT };
 
       if (_filePath === '/') {
@@ -406,12 +391,19 @@ export default class MTP_KERNEL {
           });
         }
 
+        if (typeof listMtpFileTreeData === 'undefined') {
+          return Promise.resolve({
+            data: null,
+            error: MTP_ERROR_FLAGS.NO_MTP
+          });
+        }
+
         foundItem = findLodash(listMtpFileTreeData, { name: item });
 
         if (!foundItem) {
           return Promise.resolve({
             data: null,
-            error: this.ERR.INVALID_NOT_FOUND
+            error: MTP_ERROR_FLAGS.INVALID_NOT_FOUND
           });
         }
       }
@@ -558,7 +550,7 @@ export default class MTP_KERNEL {
       ) {
         return Promise.resolve({
           data: null,
-          error: this.ERR.ILLEGAL_FILE_NAME
+          error: MTP_ERROR_FLAGS.ILLEGAL_FILE_NAME
         });
       }
 
@@ -599,7 +591,7 @@ export default class MTP_KERNEL {
         if (!getFileInfoError && getFileInfoData.name !== newfileName) {
           return Promise.resolve({
             data: null,
-            error: this.ERR.RENAME_FAILED
+            error: MTP_ERROR_FLAGS.RENAME_FAILED
           });
         }
       }
@@ -639,9 +631,9 @@ export default class MTP_KERNEL {
       let createdFolder = null;
 
       if (!undefinedOrNull(newFolderPath)) {
-        const _newFolderPath = path.resolve(newFolderPath);
-        _newFolderName = path.basename(_newFolderPath);
-        const parentPath = path.dirname(_newFolderPath);
+        const _newFolderPath = resolve(newFolderPath);
+        _newFolderName = basename(_newFolderPath);
+        const parentPath = dirname(_newFolderPath);
 
         const {
           error: resolvePathError,
@@ -694,14 +686,14 @@ export default class MTP_KERNEL {
         ) {
           return Promise.resolve({
             data: null,
-            error: this.ERR.CREATE_FOLDER_FAILED
+            error: MTP_ERROR_FLAGS.CREATE_FOLDER_FAILED
           });
         }
 
         if (!fileExistsData.isFolder) {
           return Promise.resolve({
             data: null,
-            error: this.ERR.CREATE_FOLDER_FILE_FAILED
+            error: MTP_ERROR_FLAGS.CREATE_FOLDER_FILE_FAILED
           });
         }
 
@@ -738,7 +730,7 @@ export default class MTP_KERNEL {
     recursive = false,
     ignoreHiddenFiles = false
   }) {
-    const filePath = path.resolve(folderPath);
+    const filePath = resolve(folderPath);
 
     const {
       error: resolvePathError,
@@ -809,7 +801,7 @@ export default class MTP_KERNEL {
           continue; // eslint-disable-line no-continue
         }
 
-        const fullPath = path.join(parentPath, file.name);
+        const fullPath = join(parentPath, file.name);
         const isFolder = MTP_FLAGS.FILETYPE_FOLDER === file.type;
 
         const fileInfo = {
@@ -869,20 +861,20 @@ export default class MTP_KERNEL {
     if (!this.device) return this.throwMtpError();
 
     try {
-      if (!fs.existsSync(folderPath)) {
+      if (!existsSync(folderPath)) {
         return Promise.resolve({
           data: null,
-          error: this.ERR.LOCAL_FOLDER_NOT_FOUND
+          error: MTP_ERROR_FLAGS.LOCAL_FOLDER_NOT_FOUND
         });
       }
 
-      const files = fs.readdirSync(folderPath);
+      const files = readdirSync(folderPath);
       for (let i = 0; i < files.length; i += 1) {
         const file = files[i];
 
         if (!junk.is(file)) {
-          const fullPath = path.join(folderPath, file);
-          const stats = fs.lstatSync(fullPath);
+          const fullPath = join(folderPath, file);
+          const stats = lstatSync(fullPath);
           const isFolder = stats.isDirectory();
           const fileInfo = {
             id: quickHash(fullPath),
@@ -946,7 +938,7 @@ export default class MTP_KERNEL {
       if (downloadedFile !== 0) {
         return Promise.resolve({
           data: null,
-          error: this.ERR.DOWNLOAD_FILE_FAILED
+          error: MTP_ERROR_FLAGS.DOWNLOAD_FILE_FAILED
         });
       }
 
@@ -984,13 +976,13 @@ export default class MTP_KERNEL {
       if (rootNode && nodes.length < 1) {
         return Promise.resolve({
           data: null,
-          error: this.ERR.NO_FILES_COPIED
+          error: MTP_ERROR_FLAGS.NO_FILES_COPIED
         });
       }
 
       for (let i = 0; i < nodes.length; i += 1) {
         const item = nodes[i];
-        const localFilePath = path.join(destinationFilePath, item.name);
+        const localFilePath = join(destinationFilePath, item.name);
 
         if (item.isFolder) {
           const { error: promisifiedMkdirError } = await promisifiedMkdir({
@@ -1063,7 +1055,7 @@ export default class MTP_KERNEL {
       // eslint-disable-next-line new-cap
       const file = new this.mtpNativeModule.file_t();
       file.size = size;
-      file.name = path.basename(filePath);
+      file.name = basename(filePath);
       file.type = MTP_FLAGS.FILETYPE_UNKNOWN;
       file.parentId = parentId;
       file.storageId = this.storageId;
@@ -1082,7 +1074,7 @@ export default class MTP_KERNEL {
       if (uploadedFile !== 0) {
         return Promise.resolve({
           data: null,
-          error: this.ERR.UPLOAD_FILE_FAILED
+          error: MTP_ERROR_FLAGS.UPLOAD_FILE_FAILED
         });
       }
 
@@ -1120,7 +1112,7 @@ export default class MTP_KERNEL {
 
     try {
       if (!undefinedOrNull(folderPath)) {
-        const filePath = path.resolve(folderPath);
+        const filePath = resolve(folderPath);
 
         const {
           error: resolvePathError,

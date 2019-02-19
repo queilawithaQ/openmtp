@@ -38,6 +38,7 @@ import {
 } from '../../utils/funcs';
 import { msToTime, unixTimestampNow } from '../../utils/date';
 import MTP_KERNEL from '../../../mtp-kernel';
+import { MTP_ERROR_FLAGS } from '../../../mtp-kernel/mtp-error-flags';
 
 const readdir = Promise.promisify(fsReaddir);
 const execPromise = Promise.promisify(exec);
@@ -479,6 +480,12 @@ export const fetchMtpStorageOptions = async ({ ...args }) => {
       return { error: setStorageDevicesError, data: null };
     }
 
+    if (typeof data === 'undefined') {
+      mountedMtpDevice = null;
+
+      return { error: MTP_ERROR_FLAGS.NO_MTP, data: null };
+    }
+
     return { error: null, data };
   } catch (e) {
     log.error(e);
@@ -505,11 +512,16 @@ export const asyncReadMtpDir = async ({
       recursive: false,
       ignoreHiddenFiles
     });
-
     if (listMtpFileTreeError) {
       log.error(listMtpFileTreeError, `asyncReadMtpDir`, false);
 
       return { error: listMtpFileTreeError, data: null };
+    }
+
+    if (typeof listMtpFileTreeData === 'undefined') {
+      mountedMtpDevice = null;
+
+      return { error: MTP_ERROR_FLAGS.NO_MTP, data: null };
     }
 
     return { error: null, data: listMtpFileTreeData };
