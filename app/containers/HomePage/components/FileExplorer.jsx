@@ -713,7 +713,9 @@ class FileExplorer extends Component {
         case 'rename':
           contextMenuActiveList.push({
             label: item.label,
-            enabled: Object.keys(rowData).length > 0,
+            enabled:
+              Object.keys(rowData).length > 0 &&
+              deviceType !== DEVICES_TYPE_CONST.mtp,
             data: rowData,
             click: () => {
               this._handleContextMenuListActions({

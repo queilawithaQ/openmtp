@@ -381,7 +381,8 @@ export default class MTP_KERNEL {
           data: listMtpFileTreeData
         } = await this.__listMtpFileTree({
           folderId: foundItem.id,
-          recursive: false
+          recursive: false,
+          parentPath: dirname(_filePath)
         });
 
         if (listMtpFileTreeError) {
@@ -724,7 +725,6 @@ export default class MTP_KERNEL {
    * @param recursive: {boolean}
    * @returns {Promise<{data: *, error: *}>}
    */
-
   async listMtpFileTree({
     folderPath = null,
     recursive = false,
@@ -744,6 +744,16 @@ export default class MTP_KERNEL {
       });
     }
 
+    if (
+      !resolvePathData.isFolder &&
+      resolvePathData.id !== MTP_FLAGS.FILES_AND_FOLDERS_ROOT
+    ) {
+      return Promise.resolve({
+        data: resolvePathData,
+        error: null
+      });
+    }
+
     const {
       error: listMtpFileTreeError,
       data: listMtpFileTreeData
@@ -753,7 +763,6 @@ export default class MTP_KERNEL {
       folderId: resolvePathData.id,
       parentPath: filePath
     });
-
     if (listMtpFileTreeError) {
       return Promise.resolve({
         data: null,
@@ -819,7 +828,6 @@ export default class MTP_KERNEL {
             .format('YYYY-MM-DD HH:mm:ss'),
           children: []
         };
-
         const lastIndex = fileTreeStructure.push(fileInfo) - 1;
 
         if (MTP_FLAGS.FILETYPE_FOLDER === file.type && recursive) {
@@ -848,32 +856,52 @@ export default class MTP_KERNEL {
 
   /**
    * List Local File Tree
-   * @param folderPath: {string}
+   * @param filePath: {string}
    * @param recursive: {boolean}
    * @param fileTreeStructure: {array}
    * @returns {Promise<{data: *, error: *}>}
    */
   async listLocalFileTree({
-    folderPath,
+    filePath,
     recursive = false,
     fileTreeStructure = []
   }) {
     if (!this.device) return this.throwMtpError();
 
     try {
-      if (!existsSync(folderPath)) {
+      if (!existsSync(filePath)) {
         return Promise.resolve({
           data: null,
           error: MTP_ERROR_FLAGS.LOCAL_FOLDER_NOT_FOUND
         });
       }
 
-      const files = readdirSync(folderPath);
+      const filePathStats = lstatSync(filePath);
+      const isFolder = filePathStats.isDirectory();
+      if (!filePathStats.isDirectory()) {
+        const file = basename(filePath);
+        const fullPath = filePath;
+        const fileInfo = {
+          id: quickHash(fullPath),
+          name: file,
+          size: filePathStats.size,
+          isFolder,
+          path: fullPath,
+          children: []
+        };
+
+        return Promise.resolve({
+          data: fileInfo,
+          error: null
+        });
+      }
+
+      const files = readdirSync(filePath);
       for (let i = 0; i < files.length; i += 1) {
         const file = files[i];
 
         if (!junk.is(file)) {
-          const fullPath = join(folderPath, file);
+          const fullPath = join(filePath, file);
           const stats = lstatSync(fullPath);
           const isFolder = stats.isDirectory();
           const fileInfo = {
@@ -890,7 +918,7 @@ export default class MTP_KERNEL {
 
             if (isFolder && recursive) {
               await this.listLocalFileTree({
-                folderPath: fullPath,
+                filePath: fullPath,
                 recursive,
                 fileTreeStructure: fileTreeStructure[lastIndex].children
               });
@@ -973,6 +1001,44 @@ export default class MTP_KERNEL {
     if (!this.device) return this.throwMtpError();
 
     try {
+      if (undefinedOrNull(nodes)) {
+        return Promise.resolve({
+          data: null,
+          error: MTP_ERROR_FLAGS.NO_FILES_COPIED
+        });
+      }
+
+      if (rootNode && !isArray(nodes)) {
+        const { error: promisifiedMkdirError } = await promisifiedMkdir({
+          newFolderPath: dirname(destinationFilePath)
+        });
+
+        if (promisifiedMkdirError) {
+          return Promise.resolve({
+            data: null,
+            error: promisifiedMkdirError
+          });
+        }
+
+        const { error: downloadedFileError } = await this.downloadFile({
+          destinationFilePath,
+          file: nodes,
+          callback
+        });
+
+        if (downloadedFileError) {
+          return Promise.resolve({
+            data: null,
+            error: downloadedFileError
+          });
+        }
+
+        return Promise.resolve({
+          data: true,
+          error: null
+        });
+      }
+
       if (rootNode && nodes.length < 1) {
         return Promise.resolve({
           data: null,
@@ -1094,25 +1160,30 @@ export default class MTP_KERNEL {
 
   /**
    * Upload File Tree
+   * @param rootNode: {boolean}
    * @param nodes: {array}
-   * @param folderPath:{string}
-   * @param parentId: {int} (alternative to folderPath)
+   * @param destinationFilePath:{string}
+   * @param parentId: {int} (alternative to destinationFilePath)
    * @param callback: {fn}
    * @returns {Promise<{data: *, error: *}>}
    */
   async uploadFileTree({
+    rootNode = false,
     nodes,
-    folderPath = null,
+    destinationFilePath = null,
     callback,
     parentId = null
   }) {
     if (!this.device) return this.throwMtpError();
 
     let _parentId = parentId;
+    let _nodes = nodes;
 
     try {
-      if (!undefinedOrNull(folderPath)) {
-        const filePath = resolve(folderPath);
+      const isFile = rootNode && !isArray(_nodes);
+
+      if (!undefinedOrNull(destinationFilePath)) {
+        const filePath = resolve(dirname(destinationFilePath));
 
         const {
           error: resolvePathError,
@@ -1125,12 +1196,32 @@ export default class MTP_KERNEL {
             error: resolvePathError
           });
         }
-
         _parentId = resolvePathData.id;
+
+        if (!isFile) {
+          const {
+            error: createFolderError,
+            data: createFolderData
+          } = await this.createFolder({
+            newFolderName: basename(destinationFilePath),
+            parentId: _parentId
+          });
+
+          if (createFolderError) {
+            return Promise.resolve({
+              data: null,
+              error: createFolderError
+            });
+          }
+
+          _parentId = createFolderData;
+        } else {
+          _nodes = [nodes];
+        }
       }
 
-      for (let i = 0; i < nodes.length; i += 1) {
-        const item = nodes[i];
+      for (let i = 0; i < _nodes.length; i += 1) {
+        const item = _nodes[i];
 
         if (item.isFolder) {
           const {

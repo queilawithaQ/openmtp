@@ -15,7 +15,7 @@ import rimraf from 'rimraf';
 import mkdirp from 'mkdirp';
 import path from 'path';
 import moment from 'moment';
-import { spawn, exec } from 'child_process';
+import { exec } from 'child_process';
 import findLodash from 'lodash/find';
 import { log } from '../../utils/log';
 import { mtp as _mtpCli } from '../../utils/binaries';
@@ -32,7 +32,6 @@ import {
   niceBytes,
   percentage,
   splitIntoLines,
-  truncate,
   isArray,
   undefinedOrNull
 } from '../../utils/funcs';
@@ -81,13 +80,6 @@ export const escapeShellMtp = cmd => {
 };
 
 const mtpCli = `${escapeShellMtp(_mtpCli)}`;
-
-const filterOutMtpLines = (string, index) => {
-  return (
-    filterJunkMtpErrors(string) ||
-    (index < 2 && string.toLowerCase().indexOf(`selected storage`) !== -1)
-  );
-};
 
 const filterJunkMtpErrors = string => {
   return (
@@ -150,51 +142,7 @@ const promisifiedExec = command => {
   }
 };
 
-const promisifiedExecNoCatch = command => {
-  return new Promise(resolve => {
-    execPromise(command, (error, stdout, stderr) => {
-      const {
-        filteredStderr,
-        filteredError,
-        filteredStdout
-      } = cleanJunkMtpError({ error, stdout, stderr });
-
-      if (
-        (undefinedOrNull(filteredStderr) || filteredStderr.length < 1) &&
-        (undefinedOrNull(filteredError) || filteredError.length < 1)
-      ) {
-        return resolve({
-          data: filteredStdout,
-          stderr: null,
-          error: null
-        });
-      }
-
-      return resolve({
-        data: stdout,
-        stderr,
-        error
-      });
-    });
-  });
-};
-
-const checkMtpFileExists = async (filePath, mtpStoragesListSelected) => {
-  const storageSelectCmd = `"storage ${mtpStoragesListSelected}"`;
-  const escapedFilePath = `${escapeShellMtp(filePath)}`;
-
-  const { stderr } = await promisifiedExecNoCatch(
-    `${mtpCli} ${storageSelectCmd} "properties \\"${escapedFilePath}\\""`
-  );
-
-  return !stderr;
-};
-
-export const checkFileExists = async (
-  filePath,
-  deviceType,
-  mtpStoragesListSelected
-) => {
+export const checkFileExists = async (filePath, deviceType) => {
   try {
     if (typeof filePath === 'undefined' || filePath === null) {
       return null;
@@ -227,15 +175,39 @@ export const checkFileExists = async (
           for (let i = 0; i < filePath.length; i += 1) {
             const item = filePath[i];
             fullPath = path.resolve(item);
-            if (await checkMtpFileExists(fullPath, mtpStoragesListSelected)) {
+            const {
+              error: checkMtpFileExistsError,
+              data: checkMtpFileExistsData
+            } = await checkMtpFileExists(fullPath);
+
+            if (checkMtpFileExistsError) {
+              return null;
+            }
+
+            if (checkMtpFileExistsData) {
               return true;
             }
           }
           return null;
+          // eslint-disable-next-line no-else-return
+        } else {
+          fullPath = path.resolve(filePath);
+
+          const {
+            error: checkMtpFileExistsError,
+            data: checkMtpFileExistsData
+          } = await checkMtpFileExists(fullPath);
+
+          if (checkMtpFileExistsError) {
+            return null;
+          }
+
+          if (checkMtpFileExistsData) {
+            return true;
+          }
         }
 
-        fullPath = path.resolve(filePath);
-        return await checkMtpFileExists(fullPath, mtpStoragesListSelected);
+        return null;
 
       default:
         break;
@@ -330,7 +302,11 @@ export const promisifiedRimraf = item => {
 export const delLocalFiles = async ({ fileList }) => {
   try {
     if (!fileList || fileList.length < 1) {
-      return { error: `No files selected.`, stderr: null, data: null };
+      return {
+        error: MTP_ERROR_FLAGS.NO_FILES_SELECTED,
+        stderr: null,
+        data: null
+      };
     }
 
     for (let i = 0; i < fileList.length; i += 1) {
@@ -372,7 +348,11 @@ export const renameLocalFiles = async ({ oldFilePath, newFilePath }) => {
       typeof newFilePath === 'undefined' ||
       newFilePath === null
     ) {
-      return { error: `No files selected.`, stderr: null, data: null };
+      return {
+        error: MTP_ERROR_FLAGS.NO_FILES_SELECTED,
+        stderr: null,
+        data: null
+      };
     }
 
     const { error } = await promisifiedRename({ oldFilePath, newFilePath });
@@ -492,6 +472,47 @@ export const fetchMtpStorageOptions = async ({ ...args }) => {
   }
 };
 
+const checkMtpFileExists = async filePath => {
+  try {
+    const {
+      error: verifyMountedMtpDeviceError
+    } = await verifyMountedMtpDevice();
+    if (verifyMountedMtpDeviceError) {
+      return { error: verifyMountedMtpDeviceError, data: null };
+    }
+
+    if (undefinedOrNull(filePath)) {
+      return {
+        error: MTP_ERROR_FLAGS.INVALID_PATH,
+        data: null
+      };
+    }
+
+    const { error, data } = await mtpObj.fileExists({
+      filePath
+    });
+
+    if (error) {
+      if (error === MTP_ERROR_FLAGS.INVALID_NOT_FOUND) {
+        return { error: null, data: false };
+      }
+
+      log.error(error, `checkMtpFileExists -> error`);
+      return { error, data: false };
+    }
+
+    if (typeof data === 'undefined') {
+      mountedMtpDevice = null;
+
+      return { error: MTP_ERROR_FLAGS.NO_MTP, data: false };
+    }
+
+    return { error: null, data: true };
+  } catch (e) {
+    log.error(e);
+  }
+};
+
 export const asyncReadMtpDir = async ({
   ignoreHiddenFiles,
   filePath = '/'
@@ -530,93 +551,115 @@ export const asyncReadMtpDir = async ({
   }
 };
 
-export const renameMtpFiles = async ({
-  oldFilePath,
-  newFilePath,
-  mtpStoragesListSelected
-}) => {
+export const renameMtpFiles = async ({ oldFilePath, newFilePath }) => {
   try {
-    if (
-      typeof oldFilePath === 'undefined' ||
-      oldFilePath === null ||
-      typeof newFilePath === 'undefined' ||
-      newFilePath === null
-    ) {
-      return { error: `No files selected.`, stderr: null, data: null };
+    const {
+      error: verifyMountedMtpDeviceError
+    } = await verifyMountedMtpDevice();
+    if (verifyMountedMtpDeviceError) {
+      return { error: verifyMountedMtpDeviceError, data: null };
     }
 
-    const storageSelectCmd = `"storage ${mtpStoragesListSelected}"`;
-    const escapedOldFilePath = `${escapeShellMtp(oldFilePath)}`;
-    const escapedNewFilePath = `${escapeShellMtp(baseName(newFilePath))}`;
-
-    const { error, stderr } = await promisifiedExec(
-      `${mtpCli} ${storageSelectCmd} "rename \\"${escapedOldFilePath}\\" \\"${escapedNewFilePath}\\""`
-    );
-
-    if (error || stderr) {
-      log.error(`${error} : ${stderr}`, `renameMtpFiles -> rename error`);
-      return { error, stderr, data: false };
+    if (undefinedOrNull(oldFilePath) || undefinedOrNull(newFilePath)) {
+      return {
+        error: MTP_ERROR_FLAGS.NO_FILES_SELECTED,
+        data: null
+      };
     }
 
-    return { error: null, stderr: null, data: true };
+    const { error, data } = await mtpObj.renameFile({
+      filePath: oldFilePath,
+      newfileName: baseName(newFilePath)
+    });
+
+    if (error) {
+      log.error(error, `renameMtpFiles -> error`);
+      return { error, data: false };
+    }
+
+    if (typeof data === 'undefined') {
+      mountedMtpDevice = null;
+
+      return { error: MTP_ERROR_FLAGS.NO_MTP, data: false };
+    }
+
+    return { error: null, data: true };
   } catch (e) {
     log.error(e);
   }
 };
 
-export const delMtpFiles = async ({ fileList, mtpStoragesListSelected }) => {
+export const delMtpFiles = async ({ fileList }) => {
   try {
-    if (!fileList || fileList.length < 1) {
-      return { error: `No files selected.`, stderr: null, data: null };
+    const {
+      error: verifyMountedMtpDeviceError
+    } = await verifyMountedMtpDevice();
+    if (verifyMountedMtpDeviceError) {
+      return { error: verifyMountedMtpDeviceError, data: null };
     }
 
-    const storageSelectCmd = `"storage ${mtpStoragesListSelected}"`;
-    for (let i = 0; i < fileList.length; i += 1) {
-      const { error, stderr } = await promisifiedExec(
-        `${mtpCli} ${storageSelectCmd} "rm \\"${escapeShellMtp(
-          fileList[i]
-        )}\\""`
-      );
+    if (!fileList || fileList.length < 1) {
+      return { error: MTP_ERROR_FLAGS.NO_FILES_SELECTED, data: null };
+    }
 
-      if (error || stderr) {
-        log.error(`${error} : ${stderr}`, `delMtpDir -> rm error`);
-        return { error, stderr, data: false };
+    for (let i = 0; i < fileList.length; i += 1) {
+      const { error, data } = await mtpObj.deleteFile({
+        filePath: fileList[i]
+      });
+
+      if (error) {
+        log.error(error, `delMtpDir -> error`);
+        return { error, data: false };
+      }
+
+      if (typeof data === 'undefined') {
+        mountedMtpDevice = null;
+
+        return { error: MTP_ERROR_FLAGS.NO_MTP, data: false };
       }
     }
 
-    return { error: null, stderr: null, data: true };
+    return { error: null, data: true };
   } catch (e) {
     log.error(e);
   }
 };
 
-export const newMtpFolder = async ({
-  newFolderPath,
-  mtpStoragesListSelected
-}) => {
+export const newMtpFolder = async ({ newFolderPath }) => {
   try {
-    if (typeof newFolderPath === 'undefined' || newFolderPath === null) {
-      return { error: `Invalid path.`, stderr: null, data: null };
+    const {
+      error: verifyMountedMtpDeviceError
+    } = await verifyMountedMtpDevice();
+    if (verifyMountedMtpDeviceError) {
+      return { error: verifyMountedMtpDeviceError, data: null };
     }
 
-    const storageSelectCmd = `"storage ${mtpStoragesListSelected}"`;
-    const escapedNewFolderPath = `${escapeShellMtp(newFolderPath)}`;
-    const { error, stderr } = await promisifiedExec(
-      `${mtpCli} ${storageSelectCmd} "mkpath \\"${escapedNewFolderPath}\\""`
-    );
-
-    if (error || stderr) {
-      log.error(`${error} : ${stderr}`, `newMtpFolder -> mkpath error`);
-      return { error, stderr, data: false };
+    if (undefinedOrNull(newFolderPath)) {
+      return { error: MTP_ERROR_FLAGS.INVALID_PATH, data: null };
     }
 
-    return { error: null, stderr: null, data: true };
+    const { error, data } = await mtpObj.createFolder({
+      newFolderPath
+    });
+
+    if (error) {
+      log.error(error, `newMtpFolder -> error`);
+      return { error, data: false };
+    }
+
+    if (typeof data === 'undefined') {
+      mountedMtpDevice = null;
+
+      return { error: MTP_ERROR_FLAGS.NO_MTP, data: false };
+    }
+
+    return { error: null, data: true };
   } catch (e) {
     log.error(e);
   }
 };
 
-export const pasteFiles = (
+export const pasteFiles = async (
   { ...pasteArgs },
   { ...fetchDirListArgs },
   direction,
@@ -626,21 +669,13 @@ export const pasteFiles = (
   getCurrentWindow
 ) => {
   try {
-    const {
-      destinationFolder,
-      mtpStoragesListSelected,
-      fileTransferClipboard
-    } = pasteArgs;
+    const { destinationFolder, fileTransferClipboard } = pasteArgs;
 
-    if (
-      typeof destinationFolder === 'undefined' ||
-      destinationFolder === null
-    ) {
+    if (undefinedOrNull(destinationFolder)) {
       dispatch(
         processMtpOutput({
           deviceType,
-          error: `Invalid path.`,
-          stderr: null,
+          error: MTP_ERROR_FLAGS.INVALID_PATH,
           data: null,
           callback: () => {
             dispatch(
@@ -651,14 +686,13 @@ export const pasteFiles = (
       );
     }
 
-    const storageSelectCmd = `"storage ${mtpStoragesListSelected}"`;
     const { queue } = fileTransferClipboard;
 
-    if (typeof queue === 'undefined' || queue === null || queue.length < 1) {
+    if (undefinedOrNull(queue) || queue.length < 1) {
       dispatch(
         processMtpOutput({
           deviceType,
-          error: `No files selected`,
+          error: MTP_ERROR_FLAGS.NO_FILES_SELECTED,
           stderr: null,
           data: null,
           callback: () => {
@@ -670,243 +704,286 @@ export const pasteFiles = (
       );
     }
 
-    let _queue = [];
-    let cmdArgs = {};
+    let listMtpFileTree = {};
+
     switch (direction) {
-      case 'mtpToLocal':
-        _queue = queue.map(sourcePath => {
-          const destinationPath = path.resolve(destinationFolder);
-          const escapedDestinationPath = escapeShellMtp(
-            `${destinationPath}/${baseName(sourcePath)}`
-          );
-          const escapedSourcePath = `${escapeShellMtp(sourcePath)}`;
-
-          return `-e ${storageSelectCmd} "get \\"${escapedSourcePath}\\" \\"${escapedDestinationPath}\\""`;
-        });
-
-        cmdArgs = {
-          _queue
-        };
-        return _pasteFiles(
-          { ...pasteArgs },
-          { ...fetchDirListArgs },
-          { ...cmdArgs },
-          deviceType,
-          dispatch,
-          getState,
-          getCurrentWindow
-        );
-
       case 'localtoMtp':
-        _queue = queue.map(sourcePath => {
-          const destinationPath = path.resolve(destinationFolder);
-          const escapedDestinationPath = `${escapeShellMtp(destinationPath)}`;
-          const escapedSourcePath = `${escapeShellMtp(sourcePath)}`;
-
-          return `-e ${storageSelectCmd} "put \\"${escapedSourcePath}\\" \\"${escapedDestinationPath}\\""`;
-        });
-
-        cmdArgs = {
-          _queue
-        };
-
-        return _pasteFiles(
+        // eslint-disable-next-line no-case-declarations
+        listMtpFileTree = await pasteLocalToMtp(
           { ...pasteArgs },
-          { ...fetchDirListArgs },
-          { ...cmdArgs },
           deviceType,
           dispatch,
           getState,
           getCurrentWindow
         );
-
+        break;
+      case 'mtpToLocal':
+        // eslint-disable-next-line no-case-declarations
+        listMtpFileTree = await pasteMtpToLocal(
+          { ...pasteArgs },
+          deviceType,
+          dispatch,
+          getState,
+          getCurrentWindow
+        );
+        break;
       default:
         break;
     }
+
+    dispatch(
+      processMtpOutput({
+        deviceType,
+        error: listMtpFileTree.error,
+        data: null,
+        callback: () => {
+          dispatch(fetchDirList({ ...fetchDirListArgs }, deviceType, getState));
+        }
+      })
+    );
   } catch (e) {
     log.error(e);
   }
 };
 
-const _pasteFiles = (
-  { ...pasteArgs }, // eslint-disable-line no-unused-vars
-  { ...fetchDirListArgs }, // eslint-disable-line no-unused-vars
-  { ...cmdArgs },
+const pasteMtpToLocal = async (
+  { ...pasteArgs },
   deviceType,
   dispatch,
   getState,
   getCurrentWindow
 ) => {
-  try {
-    const { _queue } = cmdArgs;
-    const handletransferListTimeInterval = 1000;
-    let transferList = {};
-    let prevCopiedBlockSize = 0;
-    let currentCopiedBlockSize = 0;
-    let startTime = 0;
-    let prevCopiedTime = 0;
-    let currentCopiedTime = 0;
-    let bufferedOutput = null;
+  const { destinationFolder, fileTransferClipboard } = pasteArgs;
+  const { queue } = fileTransferClipboard;
 
-    let handleTransferListInterval = setInterval(() => {
-      if (transferList === null) {
-        clearInterval(handleTransferListInterval);
-        handleTransferListInterval = 0;
-        return null;
-      }
+  let prevCopiedBlockSize = 0;
+  let currentCopiedBlockSize = 0;
+  let prevCopiedTime = 0;
+  let currentCopiedTime = 0;
 
-      if (Object.keys(transferList).length < 1) {
-        return null;
-      }
-
-      const { percentage: _percentage, bodyText1, bodyText2 } = transferList;
-      const copiedTimeDiff = currentCopiedTime - prevCopiedTime;
-      const speed =
-        prevCopiedBlockSize && prevCopiedBlockSize - currentCopiedBlockSize > 0
-          ? (prevCopiedBlockSize - currentCopiedBlockSize) *
-            (1000 / copiedTimeDiff)
-          : 0;
-      const _speed = speed ? `${niceBytes(speed)}` : `--`;
-      const elapsedTime = msToTime(currentCopiedTime - startTime);
-      prevCopiedTime = currentCopiedTime;
-      prevCopiedBlockSize = currentCopiedBlockSize;
-
-      getCurrentWindow().setProgressBar(_percentage / 100);
-      dispatch(
-        setFileTransferProgress({
-          toggle: true,
-          bodyText1,
-          bodyText2: `Elapsed: ${elapsedTime} | Progress: ${bodyText2} @ ${_speed}/sec`,
-          percentage: _percentage
-        })
-      );
-    }, handletransferListTimeInterval);
-
-    const cmd = spawn(mtpCli, [..._queue], {
-      shell: true
+  for (let i = 0; i < queue.length; i += 1) {
+    const item = queue[i];
+    const {
+      error: listMtpFileTreeError,
+      data: listMtpFileTreeData
+    } = await mtpObj.listMtpFileTree({
+      folderPath: item,
+      recursive: true
     });
 
-    cmd.stdout.on('data', data => {
-      bufferedOutput = data.toString();
+    if (listMtpFileTreeError) {
+      log.error(listMtpFileTreeError, `pasteFiles -> listMtpFileTreeError`);
+      return { error: listMtpFileTreeError, data: false };
+    }
 
-      if (startTime === 0) {
-        startTime = unixTimestampNow();
-      }
+    dispatch(
+      setFileTransferProgress({
+        toggle: true,
+        bodyText1: `Current file: ${path.basename(item)}`,
+        bodyText2: '',
+        percentage: percentage(i, queue[i].length - 1)
+      })
+    );
 
-      if (
-        typeof bufferedOutput === 'undefined' ||
-        bufferedOutput === null ||
-        bufferedOutput.length < 1
-      ) {
-        return null;
-      }
-
-      const _bufferedOutput = splitIntoLines(bufferedOutput).filter(
-        (a, index) => !filterOutMtpLines(a, index)
-      );
-
-      if (_bufferedOutput.length < 1) {
-        return null;
-      }
-
-      for (let i = 0; i < _bufferedOutput.length; i += 1) {
-        const item = _bufferedOutput[i];
-        const bufferedOutputSplit = item.split(' ');
-
-        if (bufferedOutputSplit.length < 1) {
-          return null;
-        }
-
-        const totalLength = bufferedOutputSplit.length;
-        const eventIndex = 0;
-        const filePathStartIndex = 1;
-        const filePathEndIndex = totalLength - 3;
-        const currentProgressSizeIndex = totalLength - 2;
-        const totalFileSizeIndex = totalLength - 1;
-
-        const event = bufferedOutputSplit[eventIndex];
-        const matchedItem = item.match(/(\d+?\d*)\s(\d+?\d*)$/);
-        if (matchedItem === null) {
-          return null;
-        }
-
-        const matchedItemSplit = matchedItem[0].split(' ');
-        const currentProgressSize = parseInt(matchedItemSplit[0], 10);
-        const totalFileSize = parseInt(matchedItemSplit[1], 10);
-
-        if (event === `:done`) {
-          prevCopiedBlockSize = 0;
-          currentCopiedBlockSize = 0;
-          prevCopiedTime = 0;
-          currentCopiedTime = 0;
-          return null;
-        }
-
-        if (
-          totalLength < 3 ||
-          event !== `:progress` ||
-          currentProgressSizeIndex < 2 ||
-          totalFileSizeIndex < 3
-        ) {
-          return null;
-        }
-
-        const filePath = bufferedOutputSplit
-          .slice(filePathStartIndex, filePathEndIndex + 1)
-          .join(' ');
-
+    const {
+      error: downloadFileTreeError,
+      data: downloadFileTreeData
+    } = await mtpObj.downloadFileTree({
+      rootNode: true,
+      nodes: listMtpFileTreeData,
+      destinationFilePath: path.join(destinationFolder, path.basename(item)),
+      // eslint-disable-next-line no-loop-func
+      callback: ({ sent: currentProgressSize, total: totalFileSize }) => {
+        const startTime = 0;
         const perc = percentage(currentProgressSize, totalFileSize);
         currentCopiedBlockSize = totalFileSize - currentProgressSize;
         currentCopiedTime = unixTimestampNow();
 
-        transferList = {
-          bodyText1: `${perc}% complete of ${truncate(baseName(filePath), 45)}`,
-          bodyText2: `${niceBytes(currentProgressSize)} / ${niceBytes(
-            totalFileSize
-          )}`,
-          percentage: perc,
-          currentCopiedBlockSize,
-          currentCopiedTime
-        };
+        const copiedTimeDiff = currentCopiedTime - prevCopiedTime;
+
+        if (copiedTimeDiff >= 1000) {
+          const speed =
+            prevCopiedBlockSize &&
+            prevCopiedBlockSize - currentCopiedBlockSize > 0
+              ? (prevCopiedBlockSize - currentCopiedBlockSize) *
+                (1000 / copiedTimeDiff)
+              : 0;
+          // eslint-disable-next-line no-unused-vars
+          const _speed = speed ? `${niceBytes(speed)}` : `--`;
+          // eslint-disable-next-line no-unused-vars
+          const elapsedTime = msToTime(currentCopiedTime - startTime);
+          prevCopiedTime = currentCopiedTime;
+          prevCopiedBlockSize = currentCopiedBlockSize;
+
+          getCurrentWindow().setProgressBar(perc / 100);
+        }
       }
     });
 
-    cmd.stderr.on('data', error => {
-      const { filteredError } = cleanJunkMtpError({ error });
-
-      if (undefinedOrNull(filteredError) || filteredError.length < 1) {
-        return null;
-      }
-
-      dispatch(
-        processMtpOutput({
-          deviceType,
-          error,
-          stderr: null,
-          data: null,
-          callback: () => {
-            transferList = null;
-            getCurrentWindow().setProgressBar(-1);
-            dispatch(clearFileTransfer());
-            dispatch(
-              fetchDirList({ ...fetchDirListArgs }, deviceType, getState)
-            );
-          }
-        })
+    if (downloadFileTreeError) {
+      log.error(downloadFileTreeError, `pasteFiles -> downloadFileTreeError`);
+      closeFileTransferProgressWindow(
+        deviceType,
+        dispatch,
+        getState,
+        getCurrentWindow
       );
-    });
+      return { error: downloadFileTreeError, data: false };
+    }
 
-    cmd.on('exit', () => {
-      transferList = null;
-      getCurrentWindow().setProgressBar(-1);
-      dispatch(clearFileTransfer());
-      dispatch(fetchDirList({ ...fetchDirListArgs }, deviceType, getState));
-    });
+    if (!downloadFileTreeData) {
+      log.error(downloadFileTreeError, `pasteFiles -> downloadFileTreeData`);
+      closeFileTransferProgressWindow(
+        deviceType,
+        dispatch,
+        getState,
+        getCurrentWindow
+      );
 
-    return { error: null, stderr: null, data: true };
-  } catch (e) {
-    log.error(e);
+      return { error: MTP_ERROR_FLAGS.DOWNLOAD_FILE_FAILED, data: false };
+    }
   }
+  closeFileTransferProgressWindow(
+    deviceType,
+    dispatch,
+    getState,
+    getCurrentWindow
+  );
+
+  return { error: null, data: true };
+};
+
+const pasteLocalToMtp = async (
+  { ...pasteArgs },
+  deviceType,
+  dispatch,
+  getState,
+  getCurrentWindow
+) => {
+  const { destinationFolder, fileTransferClipboard } = pasteArgs;
+  const { queue } = fileTransferClipboard;
+
+  let prevCopiedBlockSize = 0;
+  let currentCopiedBlockSize = 0;
+  let prevCopiedTime = 0;
+  let currentCopiedTime = 0;
+
+  dispatch(
+    setFileTransferProgress({
+      toggle: true,
+      bodyText1: `Please wait...`,
+      bodyText2: `Sit back and relax... This might take some time`,
+      percentage: 0
+    })
+  );
+
+  return new Promise(resolve => {
+    setTimeout(async _ => {
+      for (let i = 0; i < queue.length; i += 1) {
+        const item = queue[i];
+        const {
+          error: listLocalFileTreeError,
+          data: listLocalFileTreeData
+        } = await mtpObj.listLocalFileTree({
+          filePath: item,
+          recursive: true
+        });
+
+        if (listLocalFileTreeError) {
+          log.error(
+            listLocalFileTreeError,
+            `pasteFiles -> listMtpFileTreeError`
+          );
+          return resolve({
+            error: listLocalFileTreeError,
+            data: false
+          });
+        }
+
+        const {
+          error: uploadFileTreeError,
+          data: uploadFileTreeData
+        } = await mtpObj.uploadFileTree({
+          rootNode: true,
+          nodes: listLocalFileTreeData,
+          destinationFilePath: path.join(
+            destinationFolder,
+            path.basename(item)
+          ),
+          // eslint-disable-next-line no-loop-func
+          callback: ({ sent: currentProgressSize, total: totalFileSize }) => {
+            const startTime = 0;
+            const perc = percentage(currentProgressSize, totalFileSize);
+            currentCopiedBlockSize = totalFileSize - currentProgressSize;
+            currentCopiedTime = unixTimestampNow();
+
+            const copiedTimeDiff = currentCopiedTime - prevCopiedTime;
+
+            if (copiedTimeDiff >= 1000) {
+              const speed =
+                prevCopiedBlockSize &&
+                prevCopiedBlockSize - currentCopiedBlockSize > 0
+                  ? (prevCopiedBlockSize - currentCopiedBlockSize) *
+                    (1000 / copiedTimeDiff)
+                  : 0;
+              // eslint-disable-next-line no-unused-vars
+              const _speed = speed ? `${niceBytes(speed)}` : `--`;
+              // eslint-disable-next-line no-unused-vars
+              const elapsedTime = msToTime(currentCopiedTime - startTime);
+              prevCopiedTime = currentCopiedTime;
+              prevCopiedBlockSize = currentCopiedBlockSize;
+
+              getCurrentWindow().setProgressBar(perc / 100);
+            }
+          }
+        });
+
+        if (uploadFileTreeError) {
+          log.error(uploadFileTreeError, `pasteFiles -> uploadFileTreeError`);
+          closeFileTransferProgressWindow(
+            deviceType,
+            dispatch,
+            getState,
+            getCurrentWindow
+          );
+          return resolve({ error: uploadFileTreeError, data: false });
+        }
+
+        if (!uploadFileTreeData) {
+          log.error(uploadFileTreeError, `pasteFiles -> uploadFileTreeData`);
+          closeFileTransferProgressWindow(
+            deviceType,
+            dispatch,
+            getState,
+            getCurrentWindow
+          );
+
+          return resolve({
+            error: MTP_ERROR_FLAGS.DOWNLOAD_FILE_FAILED,
+            data: false
+          });
+        }
+      }
+      closeFileTransferProgressWindow(
+        deviceType,
+        dispatch,
+        getState,
+        getCurrentWindow
+      );
+
+      return resolve({ error: null, data: true });
+    }, 1000);
+  });
+};
+
+const closeFileTransferProgressWindow = (
+  deviceType,
+  dispatch,
+  getState,
+  getCurrentWindow
+) => {
+  getCurrentWindow().setProgressBar(-1);
+  dispatch(clearFileTransfer());
 };
 
 export const mtpVerboseReport = async () => {

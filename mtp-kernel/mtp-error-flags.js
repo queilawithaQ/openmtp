@@ -13,5 +13,7 @@ export const MTP_ERROR_FLAGS = {
   CREATE_FOLDER_FAILED: `Some error occured while creating a new folder`,
   CREATE_FOLDER_FILE_FAILED: `A file with a similar name exists`,
   INVALID_PATH_RESOLVE: `Illegal path, could not resolve the path`,
-  INVALID_NOT_FOUND: `Path not found`
+  INVALID_NOT_FOUND: `Path not found`,
+  NO_FILES_SELECTED: `No files selected`,
+  INVALID_PATH: `Invalid path`
 };
